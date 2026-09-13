@@ -1,18 +1,22 @@
 # Git Safety Harness
 
-A reference implementation of a soft, fail-closed Safety Harness for selected Git workflow boundaries.
+A reference implementation of a soft, fail-closed Safety Harness for selected Git workflow boundaries. The current status is **PRE-PUBLICATION REVIEW**.
+
+The Harness is a Layer-2 workflow control. It is not a sandbox, an independent security boundary, or a production security guarantee. Raw Git, shell, API, or filesystem access may bypass it unless separate Layer-3 controls constrain that access.
 
 ## Validated gates
 
-1. Repository Root
-2. Write Set
-3. Stage Set
-4. Branch
-5. Push URL
-6. Secret Scan
-7. fail-closed STOP behavior
+The current tests directly exercise these gates:
 
-The Harness does not perform `git push`. It validates the configured state before a later action.
+1. Repository Root: non-repository execution, root-resolution failure, and mismatch against another valid repository.
+2. Write Set: an out-of-scope untracked file, rename exposure, and case-collision path handling.
+3. Stage Set: an independently reachable staged-file failure.
+4. Branch: detached HEAD and expected-branch mismatch.
+5. Push URL: multiple push URLs, exactly one mismatching push URL, and a valid exact single match in the success path.
+6. Secret Scan: unavailable Gitleaks, discovered-but-unexecutable Gitleaks, an actual real-Gitleaks finding, and a successful real-Gitleaks scan.
+7. Fail-closed STOP behavior.
+
+The success path directly exercises a valid clean workflow and a valid allowed staged change. This is bounded coverage, not exhaustive testing of Git, PowerShell, Gitleaks, or all edge cases.
 
 ## Validation reference environments
 
@@ -21,27 +25,51 @@ The Harness does not perform `git push`. It validates the configured state befor
 - Windows PowerShell 5.1.26100.9444
 - Gitleaks 8.30.1
 
-The fail-closed suite passed 16/16 across PowerShell 7 and Windows PowerShell 5.1. The success-path suite passed 4/4 across both shells using real Gitleaks 8.30.1. These are reference and test environments, not universal compatibility guarantees.
+The fail-closed suite passed 14 cases under PowerShell 7 and 14 cases under Windows PowerShell 5.1: **28/28 PASS**. The positive suite passed 2 cases under each shell using real Gitleaks 8.30.1: **4/4 PASS**. These are validated reference environments and test results, not universal compatibility guarantees.
 
-## Provenance
+## Invocation contract
 
-Current locally recovered and validated working source was adopted as the v0.1 baseline. Earlier exact file lineage is not asserted.
+The Harness script requires:
+
+- `-ExpectedRootPath`: the expected repository root;
+- `-AllowedFiles`: the exact case-sensitive allowed Write Set;
+- `-AllowedStagedFiles`: the exact case-sensitive allowed Stage Set;
+- `-ExpectedBranch`: the expected symbolic branch;
+- `-ExpectedPushUrl`: the exact expected push URL; and
+- `-Remote`: the remote to inspect, defaulting to `origin`.
+
+Gitleaks is an external dependency. The Harness discovers an Application named `gitleaks` through `Get-Command gitleaks -CommandType Application` and invokes the staged scan. A direct script-process invocation with `-File` is the recommended automation boundary because its process exit code is explicit:
+
+```powershell
+pwsh -NoProfile -File .\src\git-safety-harness.ps1 `
+  -ExpectedRootPath (Get-Location).Path `
+  -AllowedFiles @('docs/article.md') `
+  -AllowedStagedFiles @('docs/article.md') `
+  -ExpectedBranch 'main' `
+  -ExpectedPushUrl '<exact-push-url>' `
+  -Remote 'origin'
+```
+
+Success returns exit code 0. A STOP path returns a non-zero exit code. Dot-sourcing and arbitrary in-process invocation are not claimed as fully validated invocation modes.
+
+## Secret Scan scope
+
+The current implementation invokes the equivalent of `gitleaks git --staged --redact` for the confirmed repository root. Secret Scan therefore covers the staged Git diff examined by Gitleaks. It does not imply that every repository file was scanned, that allowed unstaged or untracked files were scanned, or that committed-but-not-staged content is clean. It is not complete secret detection.
+
+Gitleaks behavior can be influenced by applicable scanner configuration and ignore mechanisms, including repository-local configuration where supported by Gitleaks. The Harness does not independently validate that the Gitleaks configuration or ignore rules are correct.
+
+The operational exit contract is conservative: zero means the scan is accepted as successful; non-zero, null, or execution failure means STOP. The Harness does not claim that a numeric exit code alone always distinguishes a secret finding from a scanner or runtime error.
+
+## Push contract
+
+The Harness validates the configured push URL for the specified remote. It does not perform the later `git push` and does not independently guarantee which remote or ref an arbitrary later push will use when ambient Git configuration supplies defaults. Any subsequent authorized push should explicitly name the intended remote and ref or branch.
+
+## Test evidence and provenance
+
+The current evidence measured unchanged synthetic remote refs, unchanged effective global Git configuration during the success tests, restoration of the process-local PATH, real Gitleaks 8.30.1 execution, and the expected STOP and success paths. The tests use synthetic local remotes. These measurements do not constitute broad network monitoring; the Harness code does not perform the later deployment or push action.
+
+Current locally recovered and validated working source was adopted as the v0.1 baseline. Earlier exact file lineage is not asserted. The repository implementation intentionally includes bounded corrections and compatibility hardening beyond code examples shown in the earlier explanatory article.
 
 ## Limitations
 
-The Harness does not guarantee safety, act as a sandbox, or provide an independent security boundary. Known limitations include:
-
-- semantic mistakes inside allowed files;
-- a correct remote paired with wrong content;
-- raw Git or shell bypass;
-- incomplete secret detection;
-- filesystem changes invisible to selected Git checks;
-- `assume-unchanged` and `skip-worktree` behavior;
-- human approval of wrong state;
-- deploy, API, and other external actions outside Git;
-- time-of-check/time-of-use changes;
-- path edge cases;
-- submodules, symlinks, and junctions; and
-- tool and version differences.
-
-See [design.md](docs/design.md) and [limitations.md](docs/limitations.md).
+The Harness does not guarantee safety, act as a sandbox, or provide an independent security boundary. See [design.md](docs/design.md) and [limitations.md](docs/limitations.md) for the full bounded scope. Known limitations include semantic mistakes inside allowed files, a correct remote paired with wrong content, raw Git or shell bypass, incomplete and staged-only secret detection, filesystem changes invisible to selected Git checks, `assume-unchanged`, `skip-worktree`, human approval of an incorrect state, deploy/API/external actions outside Git, TOCTOU, path edge cases, submodules, symlinks, junctions, environment influence, tool/version differences, and configuration-dependent behavior.

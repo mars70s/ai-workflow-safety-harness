@@ -1,16 +1,23 @@
 ﻿[CmdletBinding()]
-param()
+param(
+    [Parameter()]
+    [string]$GitleaksPath
+)
 
 $ErrorActionPreference = 'Stop'
 $RepositoryRoot = Split-Path -Parent $PSScriptRoot
 $SourcePath = Join-Path $RepositoryRoot 'src\git-safety-harness.ps1'
 $Timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$TestRoot = Join-Path ([System.IO.Path]::GetTempPath()) "git-safety-harness-test-$Timestamp"
+$RunId = [guid]::NewGuid().ToString('N')
+$TestRoot = Join-Path ([System.IO.Path]::GetTempPath()) "git-safety-harness-test-$Timestamp-$RunId"
 $RepoPath = Join-Path $TestRoot 'repo'
 $FakeBinPath = Join-Path $TestRoot 'fake-bin'
 $RemotePath = Join-Path $TestRoot 'remote.git'
 $WrapperPath = Join-Path $TestRoot 'wrappers'
 $EvidencePath = Join-Path $TestRoot 'evidence'
+$OriginalPath = $env:Path
+$ResolvedGitleaksPath = $null
+$GitleaksDirectory = $null
 $ShellLabel = if ($PSEdition -eq 'Core') { 'PS7' } else { 'PS5.1' }
 $ShellExecutable = if ($PSEdition -eq 'Core') {
     Join-Path $PSHOME 'pwsh.exe'
@@ -49,6 +56,45 @@ function Invoke-TestGit {
         throw "Test setup git command failed: git $($GitArgs -join ' ')"
     }
     return $Output
+}
+
+function Get-VerifiedGitleaksPath {
+    $PreviousPath = $env:Path
+    try {
+        if ($GitleaksPath) {
+            if (-not (Test-Path -LiteralPath $GitleaksPath -PathType Leaf)) {
+                throw "GITLEAKS_DEPENDENCY_UNAVAILABLE: supplied path does not exist: $GitleaksPath"
+            }
+
+            $ExpectedPath = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $GitleaksPath -ErrorAction Stop).Path)
+            $ExpectedDirectory = Split-Path -Parent $ExpectedPath
+            $env:Path = "$ExpectedDirectory;$PreviousPath"
+        }
+
+        try {
+            $Command = Get-Command gitleaks -CommandType Application -ErrorAction Stop
+        }
+        catch {
+            throw 'GITLEAKS_DEPENDENCY_UNAVAILABLE: gitleaks was not found through Application command discovery.'
+        }
+
+        if (-not $Command.Source) {
+            throw 'GITLEAKS_DEPENDENCY_UNAVAILABLE: Application command discovery returned no executable path.'
+        }
+
+        $ResolvedPath = [System.IO.Path]::GetFullPath($Command.Source)
+        if ($GitleaksPath -and $ResolvedPath -cne $ExpectedPath) {
+            throw "GITLEAKS_PATH_MISMATCH: expected $ExpectedPath but resolved $ResolvedPath"
+        }
+
+        return [pscustomobject]@{
+            Path = $ResolvedPath
+            Directory = Split-Path -Parent $ResolvedPath
+        }
+    }
+    finally {
+        $env:Path = $PreviousPath
+    }
 }
 
 function Write-TestFile {
@@ -118,7 +164,7 @@ function New-HarnessWrapper {
         "    Remote = 'origin'"
         '}'
     )
-    if ($Case -eq 'CASE_5') {
+    if ($Case -in @('CASE_5', 'CASE_12')) {
         $Lines += @(
             '$GitleaksTestCommand = Get-Command gitleaks -CommandType Application -ErrorAction SilentlyContinue'
             'if ($GitleaksTestCommand) {'
@@ -270,16 +316,28 @@ function Assert-CaseResult {
 
         [string]$RequiredMarker,
 
-        [string]$AdditionalEvidence
+        [string]$AdditionalEvidence,
+
+        [switch]$RequireExplicitStop
     )
 
+    $CombinedForMatching = $Result.Combined -replace '\s+', ''
     $HasForbiddenPass = $Result.Combined -match 'PASS: Secret Scan OK'
-    $HasExpectedMarker = $Result.Combined -match [regex]::Escape($ExpectedMarker)
+    $ExpectedMarkerPattern = [regex]::Escape(($ExpectedMarker -replace '\s+', ''))
+    if ($ExpectedMarker -notmatch ':$') {
+        $ExpectedMarkerPattern += '(?=[:]|$)'
+    }
+    $HasExpectedMarker = $CombinedForMatching -match $ExpectedMarkerPattern
     $HasRequiredMarker = $true
     if ($RequiredMarker) {
-        $HasRequiredMarker = $Result.Combined -match [regex]::Escape($RequiredMarker)
+        $HasRequiredMarker = $CombinedForMatching -match [regex]::Escape(($RequiredMarker -replace '\s+', ''))
     }
-    $Pass = $Result.ExitCode -eq 1 -and $HasExpectedMarker -and $HasRequiredMarker -and -not $HasForbiddenPass
+    $HasExplicitStop = $true
+    if ($RequireExplicitStop) {
+        $HasExplicitStop = ($CombinedForMatching -match 'STOP:') -and
+            ($CombinedForMatching -notmatch 'STOP:Harness execution failed:')
+    }
+    $Pass = $Result.ExitCode -eq 1 -and $HasExpectedMarker -and $HasRequiredMarker -and -not $HasForbiddenPass -and $HasExplicitStop
 
     $RequiredMarkerForLog = if ($RequiredMarker) { $RequiredMarker } else { 'NONE' }
     $ResultText = @(
@@ -313,13 +371,16 @@ function Assert-CaseResult {
         "HAS_EXPECTED_MARKER: $([bool]$HasExpectedMarker)"
         "HAS_REQUIRED_MARKER: $([bool]$HasRequiredMarker)"
         "HAS_FORBIDDEN_PASS: $([bool]$HasForbiddenPass)"
+        "REQUIRE_EXPLICIT_STOP: $([bool]$RequireExplicitStop)"
+        "HAS_EXPLICIT_STOP: $([bool]$HasExplicitStop)"
         "RUNNER_PASS_EXPRESSION: $([bool]$Pass)"
         "TEST_RESULT: $(if ($Pass) { 'PASS' } else { 'FAIL' })"
     ) -join "`r`n"
     if ($AdditionalEvidence) {
         $ResultText += "`r`nADDITIONAL_EVIDENCE_BEGIN`r`n$AdditionalEvidence`r`nADDITIONAL_EVIDENCE_END"
     }
-    $CaseFile = Join-Path $EvidencePath ("case-{0}.txt" -f $Case.Substring($Case.Length - 1, 1).PadLeft(2, '0'))
+    $CaseNumber = $Case -replace '^CASE_', ''
+    $CaseFile = Join-Path $EvidencePath ("case-{0}.txt" -f $CaseNumber.PadLeft(2, '0'))
     [System.IO.File]::WriteAllText($CaseFile, $ResultText, [System.Text.UTF8Encoding]::new($false))
 
     [pscustomobject]@{
@@ -336,6 +397,11 @@ try {
     New-Item -ItemType Directory -Path $TestRoot -Force | Out-Null
     New-Item -ItemType Directory -Path $RepoPath, $FakeBinPath, $WrapperPath, $EvidencePath -Force | Out-Null
 
+    $GitleaksInfo = Get-VerifiedGitleaksPath
+    $ResolvedGitleaksPath = $GitleaksInfo.Path
+    $GitleaksDirectory = $GitleaksInfo.Directory
+    Write-Output "GITLEAKS_RESOLVED_PATH=$ResolvedGitleaksPath"
+
     $Results = @()
 
     $RemoteUrl = Reset-Scenario
@@ -350,7 +416,7 @@ try {
         -AllowedFiles @('docs/article.md', 'public/article.html') `
         -AllowedStagedFiles @('docs/article.md', 'public/article.html') `
         -ExpectedPushUrl $RemoteUrl) `
-        -ExpectedMarker 'GSH_STOP_WRITE_SET' `
+        -ExpectedMarker 'GSH_STOP_WRITE_SET:' `
         -RequiredMarker 'config/new-secret.env'
 
     $RemoteUrl = Reset-Scenario
@@ -361,6 +427,9 @@ try {
     Invoke-TestGit -GitArgs @('-C', $RepoPath, 'add', '-A') | Out-Null
     $RenamePaths = @(Invoke-TestGit -GitArgs @('-C', $RepoPath, 'diff', '--cached', '--no-renames', '--name-only'))
     $RenameVisible = ($RenamePaths -contains 'config/app.json') -and ($RenamePaths -contains 'docs/article.md')
+    if (-not $RenameVisible) {
+        throw 'CASE_2 fixture did not expose both rename paths in the staged no-renames listing.'
+    }
     $Results += Assert-CaseResult -Case 'CASE_2' -Result (Invoke-HarnessProcess `
         -Case 'CASE_2' `
         -WorkingDirectory $RepoPath `
@@ -368,17 +437,13 @@ try {
         -AllowedFiles @('docs/article.md') `
         -AllowedStagedFiles @('docs/article.md') `
         -ExpectedPushUrl $RemoteUrl) `
-        -ExpectedMarker 'GSH_STOP_WRITE_SET' `
+        -ExpectedMarker 'GSH_STOP_WRITE_SET:' `
         -RequiredMarker 'config/app.json' `
         -AdditionalEvidence ("git diff --cached --no-renames --name-only`r`n" + ($RenamePaths -join "`r`n"))
-    if (-not $RenameVisible) {
-        $Results[-1].Verdict = 'FAIL'
-    }
 
     $RemoteUrl = Reset-Scenario
     Write-TestFile -RelativePath 'docs/article.md' -Content '# Test article'
     Commit-TestBaseline -Paths @('docs/article.md')
-    $OriginalPath = $env:Path
     $GitDirectory = Split-Path -Parent (Get-Command git -CommandType Application -ErrorAction Stop).Source
     $Results += Assert-CaseResult -Case 'CASE_3' -Result (Invoke-HarnessProcess `
         -Case 'CASE_3' `
@@ -388,7 +453,7 @@ try {
         -AllowedStagedFiles @('docs/article.md') `
         -ExpectedPushUrl $RemoteUrl `
         -PathOverride $GitDirectory) `
-        -ExpectedMarker 'GSH_STOP_GITLEAKS_UNAVAILABLE'
+        -ExpectedMarker 'GSH_STOP_GITLEAKS_UNAVAILABLE:'
 
     $RemoteUrl = Reset-Scenario
     Write-TestFile -RelativePath 'docs/article.md' -Content '# Test article'
@@ -401,7 +466,7 @@ try {
         -AllowedFiles @('docs/article.md') `
         -AllowedStagedFiles @('docs/article.md') `
         -ExpectedPushUrl $RemoteUrl) `
-        -ExpectedMarker 'GSH_STOP_ROOT_RESOLUTION'
+        -ExpectedMarker 'GSH_STOP_ROOT_RESOLUTION:'
 
     $RemoteUrl = Reset-Scenario
     Write-TestFile -RelativePath 'docs/article.md' -Content '# Test article'
@@ -416,7 +481,7 @@ try {
         -AllowedStagedFiles @('docs/article.md') `
         -ExpectedPushUrl $RemoteUrl `
         -PathOverride "$FakeBinPath;$OriginalPath") `
-        -ExpectedMarker 'GSH_STOP_GITLEAKS_EXECUTION' `
+        -ExpectedMarker 'GSH_STOP_GITLEAKS_EXECUTION:' `
         -RequiredMarker "GITLEAKS_TEST_SOURCE=$DummyGitleaksPath"
 
     $RemoteUrl = Reset-Scenario
@@ -430,7 +495,8 @@ try {
         -AllowedFiles @('docs/article.md') `
         -AllowedStagedFiles @('docs/article.md') `
         -ExpectedPushUrl $RemoteUrl) `
-        -ExpectedMarker 'GSH_STOP_GIT'
+        -ExpectedMarker 'GSH_STOP_GIT:' `
+        -RequiredMarker 'symbolic-ref --short HEAD'
 
     $RemoteUrl = Reset-Scenario
     Write-TestFile -RelativePath 'docs/article.md' -Content '# Test article'
@@ -439,13 +505,39 @@ try {
     Invoke-TestGit -GitArgs @(
         '-C',
         $RepoPath,
-        'remote',
-        'set-url',
+        'config',
+        '--local',
         '--add',
-        '--push',
-        'origin',
+        'remote.origin.pushurl',
+        $RemoteUrl
+    ) | Out-Null
+    Invoke-TestGit -GitArgs @(
+        '-C',
+        $RepoPath,
+        'config',
+        '--local',
+        '--add',
+        'remote.origin.pushurl',
         $AdditionalPushUrl
     ) | Out-Null
+    $Case7PushUrls = @(
+        Invoke-TestGit -GitArgs @(
+            '-C',
+            $RepoPath,
+            'remote',
+            'get-url',
+            '--push',
+            '--all',
+            'origin'
+        ) |
+            ForEach-Object { $_.ToString().Trim() } |
+            Where-Object { $_ }
+    )
+    $Case7HasExpected = @($Case7PushUrls | Where-Object { $_ -ceq $RemoteUrl }).Count -eq 1
+    $Case7HasDifferent = @($Case7PushUrls | Where-Object { $_ -cne $RemoteUrl }).Count -eq 1
+    if ($Case7PushUrls.Count -ne 2 -or -not $Case7HasExpected -or -not $Case7HasDifferent) {
+        throw "CASE_7 fixture did not produce exactly two push URLs: $($Case7PushUrls -join ', ')"
+    }
     $Results += Assert-CaseResult -Case 'CASE_7' -Result (Invoke-HarnessProcess `
         -Case 'CASE_7' `
         -WorkingDirectory $RepoPath `
@@ -453,7 +545,8 @@ try {
         -AllowedFiles @('docs/article.md') `
         -AllowedStagedFiles @('docs/article.md') `
         -ExpectedPushUrl $RemoteUrl) `
-        -ExpectedMarker 'GSH_STOP_PUSH_URL'
+        -ExpectedMarker 'GSH_STOP_PUSH_URL:' `
+        -AdditionalEvidence ("git remote get-url --push --all origin`r`n" + ($Case7PushUrls -join "`r`n"))
 
     $NonRepositoryPath = Join-Path $TestRoot 'not-a-repository'
     New-Item -ItemType Directory -Path $NonRepositoryPath -Force | Out-Null
@@ -464,7 +557,153 @@ try {
         -AllowedFiles @('docs/article.md') `
         -AllowedStagedFiles @('docs/article.md') `
         -ExpectedPushUrl $RemoteUrl) `
-        -ExpectedMarker 'GSH_STOP_ROOT'
+        -ExpectedMarker 'GSH_STOP_ROOT:' `
+        -RequireExplicitStop
+
+    $RemoteUrl = Reset-Scenario
+    Write-TestFile -RelativePath 'docs/article.md' -Content '# Test article'
+    Commit-TestBaseline -Paths @('docs/article.md')
+    $BlobOnePath = Join-Path $TestRoot 'case-sensitive-one.txt'
+    $BlobTwoPath = Join-Path $TestRoot 'case-sensitive-two.txt'
+    Set-Content -LiteralPath $BlobOnePath -Value 'case-sensitive-one' -Encoding UTF8
+    Set-Content -LiteralPath $BlobTwoPath -Value 'case-sensitive-two' -Encoding UTF8
+    $BlobOne = (Invoke-TestGit -GitArgs @('-C', $RepoPath, 'hash-object', '-w', $BlobOnePath)).ToString().Trim()
+    $BlobTwo = (Invoke-TestGit -GitArgs @('-C', $RepoPath, 'hash-object', '-w', $BlobTwoPath)).ToString().Trim()
+    Invoke-TestGit -GitArgs @('-C', $RepoPath, 'update-index', '--add', '--cacheinfo', "100644,$BlobOne,docs/CaseCollision.md") | Out-Null
+    Invoke-TestGit -GitArgs @('-C', $RepoPath, 'update-index', '--add', '--cacheinfo', "100644,$BlobTwo,docs/casecollision.md") | Out-Null
+    $CaseCollisionPaths = @(Invoke-TestGit -GitArgs @('-C', $RepoPath, 'diff', '--cached', '--no-renames', '--name-only'))
+    $Results += Assert-CaseResult -Case 'CASE_9' -Result (Invoke-HarnessProcess `
+        -Case 'CASE_9' `
+        -WorkingDirectory $RepoPath `
+        -ExpectedRoot $RepoPath `
+        -AllowedFiles @('docs/CaseCollision.md') `
+        -AllowedStagedFiles @('docs/CaseCollision.md') `
+        -ExpectedPushUrl $RemoteUrl) `
+        -ExpectedMarker 'GSH_STOP_WRITE_SET:' `
+        -RequiredMarker 'docs/casecollision.md' `
+        -AdditionalEvidence ("git diff --cached --no-renames --name-only`r`n" + ($CaseCollisionPaths -join "`r`n"))
+
+    $RemoteUrl = Reset-Scenario
+    Write-TestFile -RelativePath 'docs/article.md' -Content '# Test article'
+    Commit-TestBaseline -Paths @('docs/article.md')
+    $AlternateRepoPath = Join-Path $TestRoot 'alternate-repo'
+    New-Item -ItemType Directory -Path $AlternateRepoPath -Force | Out-Null
+    Invoke-TestGit -GitArgs @('init', $AlternateRepoPath) | Out-Null
+    Invoke-TestGit -GitArgs @('-C', $AlternateRepoPath, 'config', '--local', 'user.name', 'Harness Test') | Out-Null
+    Invoke-TestGit -GitArgs @('-C', $AlternateRepoPath, 'config', '--local', 'user.email', 'harness-test@example.invalid') | Out-Null
+    Invoke-TestGit -GitArgs @('-C', $AlternateRepoPath, 'branch', '-M', 'main') | Out-Null
+    Set-Content -LiteralPath (Join-Path $AlternateRepoPath 'alternate.txt') -Value 'alternate repository' -Encoding UTF8
+    Invoke-TestGit -GitArgs @('-C', $AlternateRepoPath, 'add', 'alternate.txt') | Out-Null
+    Invoke-TestGit -GitArgs @('-C', $AlternateRepoPath, 'commit', '-m', 'test: alternate baseline') | Out-Null
+    $Results += Assert-CaseResult -Case 'CASE_10' -Result (Invoke-HarnessProcess `
+        -Case 'CASE_10' `
+        -WorkingDirectory $RepoPath `
+        -ExpectedRoot $AlternateRepoPath `
+        -AllowedFiles @('docs/article.md') `
+        -AllowedStagedFiles @('docs/article.md') `
+        -ExpectedPushUrl $RemoteUrl) `
+        -ExpectedMarker 'GSH_STOP_ROOT:' `
+        -RequiredMarker 'unexpected Repository Root'
+
+    $RemoteUrl = Reset-Scenario
+    Write-TestFile -RelativePath 'docs/article.md' -Content '# Test article'
+    Commit-TestBaseline -Paths @('docs/article.md')
+    Invoke-TestGit -GitArgs @('-C', $RepoPath, 'branch', '-M', 'feature/mismatch') | Out-Null
+    $Results += Assert-CaseResult -Case 'CASE_11' -Result (Invoke-HarnessProcess `
+        -Case 'CASE_11' `
+        -WorkingDirectory $RepoPath `
+        -ExpectedRoot $RepoPath `
+        -AllowedFiles @('docs/article.md') `
+        -AllowedStagedFiles @('docs/article.md') `
+        -ExpectedPushUrl $RemoteUrl) `
+        -ExpectedMarker 'GSH_STOP_BRANCH:' `
+        -RequiredMarker 'unexpected branch: feature/mismatch'
+
+    $RemoteUrl = Reset-Scenario
+    Write-TestFile -RelativePath 'docs/article.md' -Content '# Test article'
+    $SyntheticGitleaksConfig = @'
+title = "Synthetic Gitleaks test configuration"
+
+[[rules]]
+id = "synthetic-test-secret"
+description = "Detects only the synthetic marker used by this test."
+regex = '''SYNTHETIC_GITLEAKS_TEST_[0-9]+'''
+keywords = ["SYNTHETIC_GITLEAKS_TEST_"]
+'@
+    Write-TestFile -RelativePath '.gitleaks.toml' -Content $SyntheticGitleaksConfig
+    Commit-TestBaseline -Paths @('docs/article.md', '.gitleaks.toml')
+    Write-TestFile -RelativePath 'config/synthetic-secret.txt' -Content 'SYNTHETIC_GITLEAKS_TEST_1234567890'
+    Invoke-TestGit -GitArgs @('-C', $RepoPath, 'add', 'config/synthetic-secret.txt') | Out-Null
+    $Results += Assert-CaseResult -Case 'CASE_12' -Result (Invoke-HarnessProcess `
+        -Case 'CASE_12' `
+        -WorkingDirectory $RepoPath `
+        -ExpectedRoot $RepoPath `
+        -AllowedFiles @('config/synthetic-secret.txt') `
+        -AllowedStagedFiles @('config/synthetic-secret.txt') `
+        -ExpectedPushUrl $RemoteUrl `
+        -PathOverride "$GitleaksDirectory;$OriginalPath") `
+        -ExpectedMarker 'GSH_STOP_SECRET_SCAN:' `
+        -RequiredMarker "GITLEAKS_TEST_SOURCE=$ResolvedGitleaksPath"
+
+    $RemoteUrl = Reset-Scenario
+    Write-TestFile -RelativePath 'docs/article.md' -Content '# Test article'
+    Commit-TestBaseline -Paths @('docs/article.md')
+    Write-TestFile -RelativePath 'docs/article.md' -Content '# Stage set test change'
+    Invoke-TestGit -GitArgs @('-C', $RepoPath, 'add', 'docs/article.md') | Out-Null
+    $Results += Assert-CaseResult -Case 'CASE_13' -Result (Invoke-HarnessProcess `
+        -Case 'CASE_13' `
+        -WorkingDirectory $RepoPath `
+        -ExpectedRoot $RepoPath `
+        -AllowedFiles @('docs/article.md') `
+        -AllowedStagedFiles @('public/allowed.html') `
+        -ExpectedPushUrl $RemoteUrl) `
+        -ExpectedMarker 'GSH_STOP_STAGE_SET:' `
+        -RequiredMarker 'docs/article.md'
+
+    $RemoteUrl = Reset-Scenario
+    Write-TestFile -RelativePath 'docs/article.md' -Content '# Test article'
+    Commit-TestBaseline -Paths @('docs/article.md')
+    $MismatchingPushUrl = Join-Path $TestRoot 'mismatching.git'
+    Invoke-TestGit -GitArgs @(
+        '-C',
+        $RepoPath,
+        'config',
+        '--local',
+        'remote.origin.pushurl',
+        $MismatchingPushUrl
+    ) | Out-Null
+    $Case14PushUrls = @(
+        Invoke-TestGit -GitArgs @(
+            '-C',
+            $RepoPath,
+            'remote',
+            'get-url',
+            '--push',
+            '--all',
+            'origin'
+        ) |
+            ForEach-Object { $_.ToString().Trim() } |
+            Where-Object { $_ }
+    )
+    $Case14UrlsDiffer = $Case14PushUrls.Count -eq 1 -and ($Case14PushUrls[0] -cne $RemoteUrl)
+    if ($Case14PushUrls.Count -ne 1 -or -not $Case14UrlsDiffer) {
+        throw 'CASE_14 fixture did not produce exactly one mismatching push URL.'
+    }
+    $Results += Assert-CaseResult -Case 'CASE_14' -Result (Invoke-HarnessProcess `
+        -Case 'CASE_14' `
+        -WorkingDirectory $RepoPath `
+        -ExpectedRoot $RepoPath `
+        -AllowedFiles @('docs/article.md') `
+        -AllowedStagedFiles @('docs/article.md') `
+        -ExpectedPushUrl $RemoteUrl) `
+        -ExpectedMarker 'GSH_STOP_PUSH_URL:' `
+        -RequiredMarker 'push URL did not match' `
+        -AdditionalEvidence (
+            "PUSH_URL_COUNT=$($Case14PushUrls.Count)`r`n" +
+            "ACTUAL_PUSH_URL=$($Case14PushUrls[0])`r`n" +
+            "EXPECTED_PUSH_URL=$RemoteUrl`r`n" +
+            "URLS_DIFFER=$Case14UrlsDiffer"
+        )
 
     $Results | Format-Table -AutoSize
     $FalsePass = @($Results | Where-Object { $_.ForbiddenPass -eq $true }).Count -gt 0

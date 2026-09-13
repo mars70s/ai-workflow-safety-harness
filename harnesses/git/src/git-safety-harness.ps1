@@ -29,27 +29,57 @@ function Stop-Harness {
     throw [System.InvalidOperationException]::new("STOP: $Message")
 }
 
+function Invoke-NativeGit {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$GitArgs,
+
+        [switch]$UseRepositoryRoot
+    )
+
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $Stdout = @()
+    $Stderr = @()
+    $ExitCode = $null
+    $DiagnosticPath = [System.IO.Path]::GetTempFileName()
+    try {
+        $ErrorActionPreference = 'Continue'
+        if ($UseRepositoryRoot) {
+            $Stdout = @(& git -C $script:RepositoryRoot @GitArgs 2> $DiagnosticPath)
+        }
+        else {
+            $Stdout = @(& git @GitArgs 2> $DiagnosticPath)
+        }
+        $ExitCode = $LASTEXITCODE
+        if (Test-Path -LiteralPath $DiagnosticPath -PathType Leaf) {
+            $Stderr = @(Get-Content -LiteralPath $DiagnosticPath)
+        }
+    }
+    finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+        if (Test-Path -LiteralPath $DiagnosticPath -PathType Leaf) {
+            Remove-Item -LiteralPath $DiagnosticPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    [pscustomobject]@{
+        Stdout = @($Stdout | ForEach-Object { $_.ToString() })
+        Stderr = @($Stderr | ForEach-Object { $_.ToString() })
+        ExitCode = $ExitCode
+    }
+}
+
 function Invoke-GitChecked {
     param(
         [Parameter(Mandatory = $true)]
         [string[]]$GitArgs
     )
 
-    $PreviousErrorActionPreference = $ErrorActionPreference
-    $Output = @()
-    $ExitCode = $null
-    try {
-        $ErrorActionPreference = 'Continue'
-        $Output = @(& git -C $script:RepositoryRoot @GitArgs 2>&1)
-        $ExitCode = $LASTEXITCODE
-    }
-    finally {
-        $ErrorActionPreference = $PreviousErrorActionPreference
-    }
+    $Result = Invoke-NativeGit -GitArgs $GitArgs -UseRepositoryRoot
 
-    if ($ExitCode -ne 0) {
+    if ($Result.ExitCode -ne 0) {
         $Diagnostic = @(
-            $Output |
+            $Result.Stderr |
                 ForEach-Object { $_.ToString() } |
                 Where-Object { $_ -and $_.Trim() }
         ) -join [Environment]::NewLine
@@ -60,25 +90,17 @@ function Invoke-GitChecked {
         Stop-Harness -Message $Message
     }
 
-    return @($Output | ForEach-Object { $_.ToString() })
+    return @($Result.Stdout)
 }
 
 try {
-    $PreviousErrorActionPreference = $ErrorActionPreference
-    $ActualRootRaw = @()
-    $RootExitCode = $null
-    try {
-        $ErrorActionPreference = 'Continue'
-        $ActualRootRaw = @(& git rev-parse --show-toplevel 2>&1)
-        $RootExitCode = $LASTEXITCODE
-    }
-    finally {
-        $ErrorActionPreference = $PreviousErrorActionPreference
-    }
+    $RootResult = Invoke-NativeGit -GitArgs @('rev-parse', '--show-toplevel')
+    $ActualRootRaw = @($RootResult.Stdout)
+    $RootExitCode = $RootResult.ExitCode
 
     if ($RootExitCode -ne 0 -or $ActualRootRaw.Count -eq 0) {
         $RootDiagnostic = @(
-            $ActualRootRaw |
+            $RootResult.Stderr |
                 ForEach-Object { $_.ToString() } |
                 Where-Object { $_ -and $_.Trim() }
         ) -join [Environment]::NewLine
@@ -152,7 +174,7 @@ try {
     ) |
         Where-Object { $_ -and $_.Trim() } |
         ForEach-Object { $_.Trim() } |
-        Sort-Object -Unique
+        Sort-Object -Unique -CaseSensitive
 
     $Unexpected = @($ChangedFiles | Where-Object { $_ -cnotin $AllowedFiles })
     if ($Unexpected.Count -gt 0) {
@@ -205,6 +227,6 @@ catch {
     if ($ErrorMessage -notmatch '^STOP:') {
         $ErrorMessage = "STOP: Harness execution failed: $ErrorMessage"
     }
-    Write-Error $ErrorMessage
+    Write-Error $ErrorMessage -ErrorAction Continue
     exit 1
 }

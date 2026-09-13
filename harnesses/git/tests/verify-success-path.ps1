@@ -11,8 +11,9 @@ $FailClosedTestPath = Join-Path $ProjectRoot 'tests\verify-fail-closed.ps1'
 $RequestedGitleaksPath = $GitleaksPath
 $GitleaksDirectory = $null
 $GitleaksPath = $null
-$Timestamp = Get-Date -Format 'yyyyMMdd-HHmmssfff'
-$TestRoot = Join-Path ([System.IO.Path]::GetTempPath()) "git-safety-harness-success-$Timestamp"
+$Timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$RunId = [guid]::NewGuid().ToString('N')
+$TestRoot = Join-Path ([System.IO.Path]::GetTempPath()) "git-safety-harness-success-$Timestamp-$RunId"
 $RepoPath = Join-Path $TestRoot 'repo'
 $RemotePath = Join-Path $TestRoot 'remote.git'
 $WrapperPath = Join-Path $TestRoot 'wrappers'
@@ -21,6 +22,7 @@ $OriginalPath = $env:Path
 $ShellVersion = $PSVersionTable.PSVersion.ToString()
 $SourceHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $SourcePath).Hash
 $FailClosedHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $FailClosedTestPath).Hash
+$M2WarningReproduced = $false
 
 function Invoke-TestGit {
     param(
@@ -52,6 +54,42 @@ function Invoke-TestGit {
         throw "Test setup git command failed: git $($GitArgs -join ' ')"
     }
     return $Output
+}
+
+function Get-SyntheticRemoteRefs {
+    return @(
+        Invoke-TestGit -GitArgs @(
+            '-C',
+            $RemotePath,
+            'for-each-ref',
+            '--format=%(refname) %(objectname)'
+        ) |
+            ForEach-Object { $_.ToString().Trim() } |
+            Where-Object { $_ } |
+            Sort-Object
+    )
+}
+
+function Get-GlobalGitConfigSnapshot {
+    $Output = @(& git config --global --list --show-origin 2>&1)
+    $ExitCode = $LASTEXITCODE
+    if ($ExitCode -ne 0) {
+        throw 'Global Git configuration snapshot failed.'
+    }
+    return @(
+        $Output |
+            ForEach-Object { $_.ToString() } |
+            Sort-Object
+    )
+}
+
+function Compare-StringArrays {
+    param(
+        [string[]]$Left,
+        [string[]]$Right
+    )
+
+    return [System.String]::Join("`n", @($Left)) -ceq [System.String]::Join("`n", @($Right))
 }
 
 function Get-VerifiedGitleaksSource {
@@ -138,6 +176,7 @@ function Reset-Scenario {
     Invoke-TestGit -GitArgs @('init', $RepoPath) | Out-Null
     Invoke-TestGit -GitArgs @('-C', $RepoPath, 'config', '--local', 'user.name', 'Harness Test') | Out-Null
     Invoke-TestGit -GitArgs @('-C', $RepoPath, 'config', '--local', 'user.email', 'harness-test@example.invalid') | Out-Null
+    Invoke-TestGit -GitArgs @('-C', $RepoPath, 'config', '--local', 'core.autocrlf', 'true') | Out-Null
     Invoke-TestGit -GitArgs @('-C', $RepoPath, 'branch', '-M', 'main') | Out-Null
     Invoke-TestGit -GitArgs @('init', '--bare', $RemotePath) | Out-Null
     Invoke-TestGit -GitArgs @('-C', $RepoPath, 'remote', 'add', 'origin', $RemotePath) | Out-Null
@@ -319,7 +358,11 @@ function Assert-SuccessResult {
         [string]$Case,
 
         [Parameter(Mandatory = $true)]
-        [pscustomobject]$Result
+        [pscustomobject]$Result,
+
+        [string]$AdditionalEvidence,
+
+        [switch]$RequireNoGitWarningData
     )
 
     $PassMarkers = @(
@@ -334,7 +377,8 @@ function Assert-SuccessResult {
     $HasStopMarker = $Result.Combined -match 'STOP:'
     $HasExpectedGitleaksSource = $Result.Combined -match [regex]::Escape("GITLEAKS_SOURCE=$GitleaksPath")
     $HasTestGitleaksSource = $Result.Combined -match [regex]::Escape("GITLEAKS_TEST_SOURCE=$GitleaksPath")
-    $Pass = $Result.ExitCode -eq 0 -and $HasPassMarkers -and -not $HasStopMarker -and $HasExpectedGitleaksSource -and $HasTestGitleaksSource
+    $HasGitWarningAsPolicyData = $Result.Combined -match 'LF will be replaced by CRLF'
+    $Pass = $Result.ExitCode -eq 0 -and $HasPassMarkers -and -not $HasStopMarker -and $HasExpectedGitleaksSource -and $HasTestGitleaksSource -and (-not $RequireNoGitWarningData -or -not $HasGitWarningAsPolicyData)
 
     $ResultText = @(
         "SHELL: $ShellVersion"
@@ -355,6 +399,8 @@ function Assert-SuccessResult {
         "HAS_STOP_MARKER: $HasStopMarker"
         "HAS_HARNESS_GITLEAKS_SOURCE: $HasExpectedGitleaksSource"
         "HAS_TEST_GITLEAKS_SOURCE: $HasTestGitleaksSource"
+        "REQUIRE_NO_GIT_WARNING_DATA: $([bool]$RequireNoGitWarningData)"
+        "HAS_GIT_WARNING_AS_POLICY_DATA: $([bool]$HasGitWarningAsPolicyData)"
         "TEST_RESULT: $(if ($Pass) { 'PASS' } else { 'FAIL' })"
     ) -join "`r`n"
     $CaseFile = Join-Path $EvidencePath ("{0}.txt" -f $Case.ToLowerInvariant().Replace('_', '-'))
@@ -381,6 +427,8 @@ try {
     Write-Output "SHELL_VERSION=$ShellVersion"
     Write-Output "GITLEAKS_RESOLVED_PATH=$VerifiedGitleaksSource"
     Write-Output "TEST_ROOT=$TestRoot"
+    $GlobalGitConfigBefore = Get-GlobalGitConfigSnapshot
+    $SyntheticRemoteRefsUnchanged = $true
 
     $ShellExecutable = if ($PSEdition -eq 'Core') {
         Join-Path $PSHOME 'pwsh.exe'
@@ -395,38 +443,74 @@ try {
     Write-TestFile -RelativePath 'docs/article.md' -Content '# Synthetic success article'
     Write-TestFile -RelativePath 'public/article.html' -Content '<p>Synthetic success article</p>'
     Commit-TestBaseline -Paths @('docs/article.md', 'public/article.html')
-    $Results += Assert-SuccessResult -Case 'SUCCESS_CASE_1' -Result (Invoke-HarnessProcess `
+    $Case1RemoteRefsBefore = @(Get-SyntheticRemoteRefs)
+    $Case1Result = Invoke-HarnessProcess `
         -Case 'SUCCESS_CASE_1' `
         -WorkingDirectory $RepoPath `
         -ExpectedRoot $RepoPath `
         -AllowedFiles @('docs/article.md', 'public/article.html') `
         -AllowedStagedFiles @('docs/article.md', 'public/article.html') `
-        -ExpectedPushUrl $RemoteUrl)
+        -ExpectedPushUrl $RemoteUrl
+    $Case1RemoteRefsAfter = @(Get-SyntheticRemoteRefs)
+    $Case1RemoteRefsUnchanged = Compare-StringArrays $Case1RemoteRefsBefore $Case1RemoteRefsAfter
+    $SyntheticRemoteRefsUnchanged = $SyntheticRemoteRefsUnchanged -and $Case1RemoteRefsUnchanged
+    $Results += Assert-SuccessResult -Case 'SUCCESS_CASE_1' -Result $Case1Result `
+        -AdditionalEvidence (
+            "SYNTHETIC_REMOTE_REFS_BEFORE_COUNT=$($Case1RemoteRefsBefore.Count)`r`n" +
+            "SYNTHETIC_REMOTE_REFS_AFTER_COUNT=$($Case1RemoteRefsAfter.Count)`r`n" +
+            "SYNTHETIC_REMOTE_REFS_UNCHANGED=$Case1RemoteRefsUnchanged"
+        )
 
     $RemoteUrl = Reset-Scenario
     Write-TestFile -RelativePath 'docs/article.md' -Content '# Synthetic success baseline'
     Commit-TestBaseline -Paths @('docs/article.md')
-    Write-TestFile -RelativePath 'docs/article.md' -Content '# Synthetic allowed success change'
-    Invoke-TestGit -GitArgs @('-C', $RepoPath, 'add', 'docs/article.md') | Out-Null
-    $Results += Assert-SuccessResult -Case 'SUCCESS_CASE_2' -Result (Invoke-HarnessProcess `
+    [System.IO.File]::WriteAllText(
+        (Join-Path $RepoPath 'docs/article.md'),
+        "# Synthetic allowed success change`n",
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $StageOutput = @(Invoke-TestGit -GitArgs @('-C', $RepoPath, 'add', 'docs/article.md'))
+    $StageWarnings = @(
+        $StageOutput |
+            ForEach-Object { $_.ToString() } |
+            Where-Object { $_ -match 'LF will be replaced by CRLF' }
+    )
+    $M2WarningReproduced = $StageWarnings.Count -gt 0
+    $Case2RemoteRefsBefore = @(Get-SyntheticRemoteRefs)
+    $SuccessCase2Result = Invoke-HarnessProcess `
         -Case 'SUCCESS_CASE_2' `
         -WorkingDirectory $RepoPath `
         -ExpectedRoot $RepoPath `
         -AllowedFiles @('docs/article.md') `
         -AllowedStagedFiles @('docs/article.md') `
-        -ExpectedPushUrl $RemoteUrl)
+        -ExpectedPushUrl $RemoteUrl
+    $Case2RemoteRefsAfter = @(Get-SyntheticRemoteRefs)
+    $Case2RemoteRefsUnchanged = Compare-StringArrays $Case2RemoteRefsBefore $Case2RemoteRefsAfter
+    $SyntheticRemoteRefsUnchanged = $SyntheticRemoteRefsUnchanged -and $Case2RemoteRefsUnchanged
+    $Results += Assert-SuccessResult -Case 'SUCCESS_CASE_2' -Result $SuccessCase2Result `
+        -AdditionalEvidence (
+            "SYNTHETIC_REMOTE_REFS_BEFORE_COUNT=$($Case2RemoteRefsBefore.Count)`r`n" +
+            "SYNTHETIC_REMOTE_REFS_AFTER_COUNT=$($Case2RemoteRefsAfter.Count)`r`n" +
+            "SYNTHETIC_REMOTE_REFS_UNCHANGED=$Case2RemoteRefsUnchanged`r`n" +
+            "M2_WARNING_REPRODUCED=$M2WarningReproduced`r`n" +
+            ($StageWarnings -join "`r`n")
+        ) `
+        -RequireNoGitWarningData
 
     $Results | Format-Table -AutoSize
     $SourceHashAfter = (Get-FileHash -Algorithm SHA256 -LiteralPath $SourcePath).Hash
     $FailClosedHashAfter = (Get-FileHash -Algorithm SHA256 -LiteralPath $FailClosedTestPath).Hash
     $ProjectSourceUnchanged = $SourceHashBefore -eq $SourceHashAfter -and $FailClosedHashBefore -eq $FailClosedHashAfter
     $PathRestored = $env:Path -eq $OriginalPath
+    $GlobalGitConfigAfter = Get-GlobalGitConfigSnapshot
+    $GlobalGitConfigUnchanged = Compare-StringArrays $GlobalGitConfigBefore $GlobalGitConfigAfter
     Write-Output "PROJECT_SOURCE_UNCHANGED=$ProjectSourceUnchanged"
-    Write-Output 'NETWORK_PUSH_PERFORMED=NO'
-    Write-Output 'GLOBAL_GIT_CONFIG_CHANGED=NO'
     Write-Output "PERSISTENT_PATH_RESTORED=$PathRestored"
+    Write-Output "SYNTHETIC_REMOTE_REFS_UNCHANGED=$SyntheticRemoteRefsUnchanged"
+    Write-Output "GLOBAL_GIT_CONFIG_UNCHANGED=$GlobalGitConfigUnchanged"
+    Write-Output "M2_WARNING_REPRODUCED=$M2WarningReproduced"
 
-    $Passed = (@($Results | Where-Object { $_.Verdict -ne 'PASS' }).Count -eq 0) -and $ProjectSourceUnchanged -and $PathRestored
+    $Passed = (@($Results | Where-Object { $_.Verdict -ne 'PASS' }).Count -eq 0) -and $ProjectSourceUnchanged -and $PathRestored -and $SyntheticRemoteRefsUnchanged -and $GlobalGitConfigUnchanged -and $M2WarningReproduced
     if ($Passed) {
         Write-Output 'FINAL_RESULT=PASS'
         exit 0
