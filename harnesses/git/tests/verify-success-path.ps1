@@ -56,6 +56,39 @@ function Invoke-TestGit {
     return $Output
 }
 
+function Invoke-TestGitWithDiagnostics {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$GitArgs
+    )
+
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $DiagnosticPath = [System.IO.Path]::GetTempFileName()
+    $Stdout = @()
+    $Stderr = @()
+    $ExitCode = $null
+    try {
+        $ErrorActionPreference = 'Continue'
+        $Stdout = @(& git @GitArgs 2> $DiagnosticPath)
+        $ExitCode = $LASTEXITCODE
+        if (Test-Path -LiteralPath $DiagnosticPath -PathType Leaf) {
+            $Stderr = @(Get-Content -LiteralPath $DiagnosticPath)
+        }
+    }
+    finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+        if (Test-Path -LiteralPath $DiagnosticPath -PathType Leaf) {
+            Remove-Item -LiteralPath $DiagnosticPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    [pscustomobject]@{
+        Stdout = @($Stdout | ForEach-Object { $_.ToString() })
+        Stderr = @($Stderr | ForEach-Object { $_.ToString() })
+        ExitCode = $ExitCode
+    }
+}
+
 function Get-SyntheticRemoteRefs {
     return @(
         Invoke-TestGit -GitArgs @(
@@ -71,16 +104,23 @@ function Get-SyntheticRemoteRefs {
 }
 
 function Get-GlobalGitConfigSnapshot {
-    $Output = @(& git config --global --list --show-origin 2>&1)
-    $ExitCode = $LASTEXITCODE
-    if ($ExitCode -ne 0) {
-        throw 'Global Git configuration snapshot failed.'
+    $Result = Invoke-TestGitWithDiagnostics -GitArgs @('config', '--global', '--list', '--show-origin')
+    if ($Result.ExitCode -eq 0) {
+        return @(
+            $Result.Stdout |
+                ForEach-Object { $_.ToString() } |
+                Sort-Object
+        )
     }
-    return @(
-        $Output |
-            ForEach-Object { $_.ToString() } |
-            Sort-Object
-    )
+
+    $MissingConfig = $Result.ExitCode -in @(1, 128) -and
+        @($Result.Stdout | Where-Object { $_ -and $_.Trim() }).Count -eq 0 -and
+        @($Result.Stderr | Where-Object { $_ -match '(?i)(unable to read config file|no such file or directory|cannot open)' }).Count -gt 0
+    if ($MissingConfig) {
+        return @()
+    }
+
+    throw 'Global Git configuration snapshot failed.'
 }
 
 function Compare-StringArrays {
@@ -89,7 +129,9 @@ function Compare-StringArrays {
         [string[]]$Right
     )
 
-    return [System.String]::Join("`n", @($Left)) -ceq [System.String]::Join("`n", @($Right))
+    $LeftText = if ($null -eq $Left -or $Left.Count -eq 0) { '' } else { [System.String]::Join("`n", $Left) }
+    $RightText = if ($null -eq $Right -or $Right.Count -eq 0) { '' } else { [System.String]::Join("`n", $Right) }
+    return $LeftText -ceq $RightText
 }
 
 function Get-VerifiedGitleaksSource {
@@ -403,6 +445,9 @@ function Assert-SuccessResult {
         "HAS_GIT_WARNING_AS_POLICY_DATA: $([bool]$HasGitWarningAsPolicyData)"
         "TEST_RESULT: $(if ($Pass) { 'PASS' } else { 'FAIL' })"
     ) -join "`r`n"
+    if ($AdditionalEvidence) {
+        $ResultText += "`r`nADDITIONAL_EVIDENCE_BEGIN`r`n$AdditionalEvidence`r`nADDITIONAL_EVIDENCE_END"
+    }
     $CaseFile = Join-Path $EvidencePath ("{0}.txt" -f $Case.ToLowerInvariant().Replace('_', '-'))
     [System.IO.File]::WriteAllText($CaseFile, $ResultText, [System.Text.UTF8Encoding]::new($false))
 
@@ -469,13 +514,15 @@ try {
         "# Synthetic allowed success change`n",
         [System.Text.UTF8Encoding]::new($false)
     )
-    $StageOutput = @(Invoke-TestGit -GitArgs @('-C', $RepoPath, 'add', 'docs/article.md'))
-    $StageWarnings = @(
-        $StageOutput |
-            ForEach-Object { $_.ToString() } |
+    $M2GitProbe = Invoke-TestGitWithDiagnostics -GitArgs @('-C', $RepoPath, 'diff', '--no-renames', '--name-only')
+    $M2WarningLines = @(
+        $M2GitProbe.Stderr |
             Where-Object { $_ -match 'LF will be replaced by CRLF' }
     )
-    $M2WarningReproduced = $StageWarnings.Count -gt 0
+    $M2WarningReproduced = $M2GitProbe.ExitCode -eq 0 -and $M2WarningLines.Count -gt 0
+    if (-not $M2WarningReproduced) {
+        throw 'SUCCESS_CASE_2 fixture did not reproduce the expected warning on the Harness-relevant git diff command.'
+    }
     $Case2RemoteRefsBefore = @(Get-SyntheticRemoteRefs)
     $SuccessCase2Result = Invoke-HarnessProcess `
         -Case 'SUCCESS_CASE_2' `
@@ -492,8 +539,9 @@ try {
             "SYNTHETIC_REMOTE_REFS_BEFORE_COUNT=$($Case2RemoteRefsBefore.Count)`r`n" +
             "SYNTHETIC_REMOTE_REFS_AFTER_COUNT=$($Case2RemoteRefsAfter.Count)`r`n" +
             "SYNTHETIC_REMOTE_REFS_UNCHANGED=$Case2RemoteRefsUnchanged`r`n" +
+            "M2_HARNESS_RELEVANT_COMMAND=git diff --no-renames --name-only`r`n" +
             "M2_WARNING_REPRODUCED=$M2WarningReproduced`r`n" +
-            ($StageWarnings -join "`r`n")
+            ($M2WarningLines -join "`r`n")
         ) `
         -RequireNoGitWarningData
 
@@ -505,9 +553,9 @@ try {
     $GlobalGitConfigAfter = Get-GlobalGitConfigSnapshot
     $GlobalGitConfigUnchanged = Compare-StringArrays $GlobalGitConfigBefore $GlobalGitConfigAfter
     Write-Output "PROJECT_SOURCE_UNCHANGED=$ProjectSourceUnchanged"
-    Write-Output "PERSISTENT_PATH_RESTORED=$PathRestored"
+    Write-Output "PROCESS_LOCAL_PATH_RESTORED=$PathRestored"
     Write-Output "SYNTHETIC_REMOTE_REFS_UNCHANGED=$SyntheticRemoteRefsUnchanged"
-    Write-Output "GLOBAL_GIT_CONFIG_UNCHANGED=$GlobalGitConfigUnchanged"
+    Write-Output "GLOBAL_SCOPE_GIT_CONFIG_UNCHANGED=$GlobalGitConfigUnchanged"
     Write-Output "M2_WARNING_REPRODUCED=$M2WarningReproduced"
 
     $Passed = (@($Results | Where-Object { $_.Verdict -ne 'PASS' }).Count -eq 0) -and $ProjectSourceUnchanged -and $PathRestored -and $SyntheticRemoteRefsUnchanged -and $GlobalGitConfigUnchanged -and $M2WarningReproduced

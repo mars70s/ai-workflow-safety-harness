@@ -58,6 +58,25 @@ function Invoke-TestGit {
     return $Output
 }
 
+function Invoke-GitleaksFindingProbe {
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $Output = @()
+    $ExitCode = $null
+    try {
+        $ErrorActionPreference = 'Continue'
+        $Output = @(& $ResolvedGitleaksPath git --staged --redact $RepoPath 2>&1)
+        $ExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+
+    [pscustomobject]@{
+        Output = @($Output | ForEach-Object { $_.ToString() })
+        ExitCode = $ExitCode
+    }
+}
+
 function Get-VerifiedGitleaksPath {
     $PreviousPath = $env:Path
     try {
@@ -558,6 +577,7 @@ try {
         -AllowedStagedFiles @('docs/article.md') `
         -ExpectedPushUrl $RemoteUrl) `
         -ExpectedMarker 'GSH_STOP_ROOT:' `
+        -RequiredMarker 'could not be confirmed' `
         -RequireExplicitStop
 
     $RemoteUrl = Reset-Scenario
@@ -630,10 +650,21 @@ description = "Detects only the synthetic marker used by this test."
 regex = '''SYNTHETIC_GITLEAKS_TEST_[0-9]+'''
 keywords = ["SYNTHETIC_GITLEAKS_TEST_"]
 '@
-    Write-TestFile -RelativePath '.gitleaks.toml' -Content $SyntheticGitleaksConfig
+    [System.IO.File]::WriteAllText(
+        (Join-Path $RepoPath '.gitleaks.toml'),
+        $SyntheticGitleaksConfig,
+        [System.Text.UTF8Encoding]::new($false)
+    )
     Commit-TestBaseline -Paths @('docs/article.md', '.gitleaks.toml')
     Write-TestFile -RelativePath 'config/synthetic-secret.txt' -Content 'SYNTHETIC_GITLEAKS_TEST_1234567890'
     Invoke-TestGit -GitArgs @('-C', $RepoPath, 'add', 'config/synthetic-secret.txt') | Out-Null
+    $Case12FindingProbe = Invoke-GitleaksFindingProbe
+    $Case12FindingMarker = 'leaks found: 1'
+    $Case12FindingObserved = $Case12FindingProbe.ExitCode -eq 1 -and
+        @($Case12FindingProbe.Output | Where-Object { $_ -match [regex]::Escape($Case12FindingMarker) }).Count -gt 0
+    if (-not $Case12FindingObserved) {
+        throw 'CASE_12 fixture did not produce the expected real Gitleaks finding marker.'
+    }
     $Results += Assert-CaseResult -Case 'CASE_12' -Result (Invoke-HarnessProcess `
         -Case 'CASE_12' `
         -WorkingDirectory $RepoPath `
@@ -643,7 +674,12 @@ keywords = ["SYNTHETIC_GITLEAKS_TEST_"]
         -ExpectedPushUrl $RemoteUrl `
         -PathOverride "$GitleaksDirectory;$OriginalPath") `
         -ExpectedMarker 'GSH_STOP_SECRET_SCAN:' `
-        -RequiredMarker "GITLEAKS_TEST_SOURCE=$ResolvedGitleaksPath"
+        -RequiredMarker $Case12FindingMarker `
+        -AdditionalEvidence (
+            "GITLEAKS_FINDING_PROBE_EXIT=$($Case12FindingProbe.ExitCode)`r`n" +
+            "GITLEAKS_FINDING_MARKER=$Case12FindingMarker`r`n" +
+            ($Case12FindingProbe.Output -join "`r`n")
+        )
 
     $RemoteUrl = Reset-Scenario
     Write-TestFile -RelativePath 'docs/article.md' -Content '# Test article'

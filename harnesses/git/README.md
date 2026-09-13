@@ -16,7 +16,7 @@ The current tests directly exercise these gates:
 6. Secret Scan: unavailable Gitleaks, discovered-but-unexecutable Gitleaks, an actual real-Gitleaks finding, and a successful real-Gitleaks scan.
 7. Fail-closed STOP behavior.
 
-The success path directly exercises a valid clean workflow and a valid allowed staged change. This is bounded coverage, not exhaustive testing of Git, PowerShell, Gitleaks, or all edge cases.
+The success path directly exercises a valid clean workflow and a valid allowed change, including the line-ending warning condition described below. This is bounded coverage, not exhaustive testing of Git, PowerShell, Gitleaks, or all edge cases.
 
 ## Validation reference environments
 
@@ -38,23 +38,29 @@ The Harness script requires:
 - `-ExpectedPushUrl`: the exact expected push URL; and
 - `-Remote`: the remote to inspect, defaulting to `origin`.
 
-Gitleaks is an external dependency. The Harness discovers an Application named `gitleaks` through `Get-Command gitleaks -CommandType Application` and invokes the staged scan. A direct script-process invocation with `-File` is the recommended automation boundary because its process exit code is explicit:
+Gitleaks is an external dependency. The Harness discovers an Application named `gitleaks` through `Get-Command gitleaks -CommandType Application` and invokes the staged scan. The validated automation boundary is a PowerShell wrapper or caller that creates native PowerShell objects, including a `[string[]]` `AllowedFiles` value, builds a parameter hashtable, invokes the Harness with splatting, and propagates the child exit code:
 
 ```powershell
-pwsh -NoProfile -File .\src\git-safety-harness.ps1 `
-  -ExpectedRootPath (Get-Location).Path `
-  -AllowedFiles @('docs/article.md') `
-  -AllowedStagedFiles @('docs/article.md') `
-  -ExpectedBranch 'main' `
-  -ExpectedPushUrl '<exact-push-url>' `
-  -Remote 'origin'
+$HarnessPath = '.\src\git-safety-harness.ps1'
+[string[]]$AllowedFiles = @('docs/article.md', 'public/article.html')
+[string[]]$AllowedStagedFiles = @('docs/article.md', 'public/article.html')
+$HarnessParams = @{
+  ExpectedRootPath = (Get-Location).Path
+  AllowedFiles = $AllowedFiles
+  AllowedStagedFiles = $AllowedStagedFiles
+  ExpectedBranch = 'main'
+  ExpectedPushUrl = '<exact-push-url>'
+  Remote = 'origin'
+}
+& $HarnessPath @HarnessParams
+exit $LASTEXITCODE
 ```
 
-Success returns exit code 0. A STOP path returns a non-zero exit code. Dot-sourcing and arbitrary in-process invocation are not claimed as fully validated invocation modes.
+This wrapper/splatting form is the validated multi-file automation pattern. Direct `-File` invocation is not the validated general multi-value interface for `AllowedFiles`; shell-to-PowerShell array binding can differ, so `@('a', 'b')` should not be passed as though it were native external command-line array syntax. A direct `-File` call remains useful only for a single-value parameter when its shell binding is understood. Success returns exit code 0. A STOP path returns a non-zero exit code. Dot-sourcing and arbitrary in-process invocation are not claimed as fully validated invocation modes.
 
 ## Secret Scan scope
 
-The current implementation invokes the equivalent of `gitleaks git --staged --redact` for the confirmed repository root. Secret Scan therefore covers the staged Git diff examined by Gitleaks. It does not imply that every repository file was scanned, that allowed unstaged or untracked files were scanned, or that committed-but-not-staged content is clean. It is not complete secret detection.
+The current implementation invokes the equivalent of `gitleaks git --staged --redact` for the confirmed repository root. Secret Scan therefore covers the staged Git diff examined by Gitleaks. It does not imply that every repository file was scanned, that allowed unstaged or untracked files were scanned, or that committed content, including commits that have not yet been pushed, is scanned merely because it exists in repository history. It is not complete secret detection.
 
 Gitleaks behavior can be influenced by applicable scanner configuration and ignore mechanisms, including repository-local configuration where supported by Gitleaks. The Harness does not independently validate that the Gitleaks configuration or ignore rules are correct.
 
@@ -66,7 +72,7 @@ The Harness validates the configured push URL for the specified remote. It does 
 
 ## Test evidence and provenance
 
-The current evidence measured unchanged synthetic remote refs, unchanged effective global Git configuration during the success tests, restoration of the process-local PATH, real Gitleaks 8.30.1 execution, and the expected STOP and success paths. The tests use synthetic local remotes. These measurements do not constitute broad network monitoring; the Harness code does not perform the later deployment or push action.
+The current evidence measured unchanged synthetic remote refs, unchanged Git configuration in the global scope during the success tests, restoration of the process-local PATH, real Gitleaks execution, and the expected STOP and success paths. The separately verified Gitleaks executable used for positive-path validation was version 8.30.1. The tests use synthetic local remotes. These measurements do not constitute broad network monitoring; the Harness code does not perform the later deployment or push action.
 
 Current locally recovered and validated working source was adopted as the v0.1 baseline. Earlier exact file lineage is not asserted. The repository implementation intentionally includes bounded corrections and compatibility hardening beyond code examples shown in the earlier explanatory article.
 
