@@ -1,0 +1,440 @@
+[CmdletBinding()]
+param(
+    [Parameter()]
+    [string]$GitleaksPath
+)
+
+$ErrorActionPreference = 'Stop'
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+$SourcePath = Join-Path $ProjectRoot 'src\git-safety-harness.ps1'
+$FailClosedTestPath = Join-Path $ProjectRoot 'tests\verify-fail-closed.ps1'
+$RequestedGitleaksPath = $GitleaksPath
+$GitleaksDirectory = $null
+$GitleaksPath = $null
+$Timestamp = Get-Date -Format 'yyyyMMdd-HHmmssfff'
+$TestRoot = Join-Path ([System.IO.Path]::GetTempPath()) "git-safety-harness-success-$Timestamp"
+$RepoPath = Join-Path $TestRoot 'repo'
+$RemotePath = Join-Path $TestRoot 'remote.git'
+$WrapperPath = Join-Path $TestRoot 'wrappers'
+$EvidencePath = Join-Path $TestRoot 'evidence'
+$OriginalPath = $env:Path
+$ShellVersion = $PSVersionTable.PSVersion.ToString()
+$SourceHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $SourcePath).Hash
+$FailClosedHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $FailClosedTestPath).Hash
+
+function Invoke-TestGit {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$GitArgs
+    )
+
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $Output = @()
+    $ExitCode = $null
+    try {
+        $ErrorActionPreference = 'Continue'
+        $Output = @(& git @GitArgs 2>&1)
+        $ExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+
+    if ($ExitCode -ne 0) {
+        $Diagnostic = @(
+            $Output |
+                ForEach-Object { $_.ToString() } |
+                Where-Object { $_ -and $_.Trim() }
+        ) -join [Environment]::NewLine
+        if ($Diagnostic) {
+            throw "Test setup git command failed: git $($GitArgs -join ' ')`n$Diagnostic"
+        }
+        throw "Test setup git command failed: git $($GitArgs -join ' ')"
+    }
+    return $Output
+}
+
+function Get-VerifiedGitleaksSource {
+    $PreviousPath = $env:Path
+    try {
+        if ($RequestedGitleaksPath) {
+            if (-not (Test-Path -LiteralPath $RequestedGitleaksPath -PathType Leaf)) {
+                throw "GITLEAKS_DEPENDENCY_UNAVAILABLE: supplied path does not exist: $RequestedGitleaksPath"
+            }
+
+            $CanonicalRequestedPath = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $RequestedGitleaksPath -ErrorAction Stop).Path)
+            $RequestedDirectory = Split-Path -Parent $CanonicalRequestedPath
+            $env:Path = "$RequestedDirectory;$PreviousPath"
+            $Command = Get-Command gitleaks -CommandType Application -ErrorAction Stop
+            $ResolvedCommandPath = [System.IO.Path]::GetFullPath($Command.Source)
+            if ($ResolvedCommandPath -cne $CanonicalRequestedPath) {
+                throw "GITLEAKS_PATH_MISMATCH: expected $CanonicalRequestedPath but resolved $ResolvedCommandPath"
+            }
+
+            return [pscustomobject]@{
+                Path = $CanonicalRequestedPath
+                Directory = $RequestedDirectory
+            }
+        }
+
+        try {
+            $Command = Get-Command gitleaks -CommandType Application -ErrorAction Stop
+        }
+        catch {
+            throw "GITLEAKS_DEPENDENCY_UNAVAILABLE: gitleaks was not found through Application command discovery."
+        }
+
+        if (-not $Command.Source) {
+            throw 'GITLEAKS_DEPENDENCY_UNAVAILABLE: Application command discovery returned no executable path.'
+        }
+
+        $ResolvedCommandPath = [System.IO.Path]::GetFullPath($Command.Source)
+        return [pscustomobject]@{
+            Path = $ResolvedCommandPath
+            Directory = (Split-Path -Parent $ResolvedCommandPath)
+        }
+    }
+    finally {
+        $env:Path = $PreviousPath
+    }
+}
+
+function ConvertTo-PowerShellLiteral {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Value
+    )
+
+    return "'$(($Value -replace "'", "''"))'"
+}
+
+function Write-TestFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RelativePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Content
+    )
+
+    $Path = Join-Path $RepoPath $RelativePath
+    $Parent = Split-Path -Parent $Path
+    New-Item -ItemType Directory -Path $Parent -Force | Out-Null
+    Set-Content -LiteralPath $Path -Value $Content -Encoding UTF8
+}
+
+function Reset-Scenario {
+    foreach ($Path in @($RepoPath, $RemotePath)) {
+        if (Test-Path -LiteralPath $Path) {
+            Get-ChildItem -LiteralPath $Path -Force |
+                Remove-Item -Recurse -Force -ErrorAction Stop
+        }
+        else {
+            New-Item -ItemType Directory -Path $Path -Force | Out-Null
+        }
+    }
+
+    Invoke-TestGit -GitArgs @('init', $RepoPath) | Out-Null
+    Invoke-TestGit -GitArgs @('-C', $RepoPath, 'config', '--local', 'user.name', 'Harness Test') | Out-Null
+    Invoke-TestGit -GitArgs @('-C', $RepoPath, 'config', '--local', 'user.email', 'harness-test@example.invalid') | Out-Null
+    Invoke-TestGit -GitArgs @('-C', $RepoPath, 'branch', '-M', 'main') | Out-Null
+    Invoke-TestGit -GitArgs @('init', '--bare', $RemotePath) | Out-Null
+    Invoke-TestGit -GitArgs @('-C', $RepoPath, 'remote', 'add', 'origin', $RemotePath) | Out-Null
+
+    $PushUrls = @(
+        Invoke-TestGit -GitArgs @(
+            '-C',
+            $RepoPath,
+            'remote',
+            'get-url',
+            '--push',
+            '--all',
+            'origin'
+        ) |
+            ForEach-Object { $_.ToString().Trim() } |
+            Where-Object { $_ }
+    )
+    if ($PushUrls.Count -ne 1) {
+        throw "Synthetic remote did not produce exactly one push URL: $($PushUrls.Count)"
+    }
+    return $PushUrls[0]
+}
+
+function Commit-TestBaseline {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Paths
+    )
+
+    Invoke-TestGit -GitArgs (@('-C', $RepoPath, 'add') + $Paths) | Out-Null
+    Invoke-TestGit -GitArgs @('-C', $RepoPath, 'commit', '-m', 'test: establish success baseline') | Out-Null
+}
+
+function New-HarnessWrapper {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Case,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$AllowedFiles,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$AllowedStagedFiles,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedPushUrl
+    )
+
+    $WrapperFile = Join-Path $WrapperPath ("{0}.ps1" -f $Case.ToLowerInvariant().Replace('_', '-'))
+    $Lines = @(
+        "`$HarnessPath = $(ConvertTo-PowerShellLiteral -Value $SourcePath)"
+        "`$ExpectedGitleaksPath = $(ConvertTo-PowerShellLiteral -Value $GitleaksPath)"
+        '$GitleaksCommand = Get-Command gitleaks -CommandType Application -ErrorAction SilentlyContinue'
+        'if (-not $GitleaksCommand -or $GitleaksCommand.Source -cne $ExpectedGitleaksPath) {'
+        '    Write-Error "GITLEAKS_TEST_SOURCE_MISMATCH: $($GitleaksCommand.Source)"'
+        '    exit 90'
+        '}'
+        'Write-Output "GITLEAKS_TEST_SOURCE=$($GitleaksCommand.Source)"'
+        '$HarnessParams = @{'
+        "    ExpectedRootPath = $(ConvertTo-PowerShellLiteral -Value $ExpectedRoot)"
+        '    AllowedFiles = @('
+    )
+    foreach ($AllowedFile in $AllowedFiles) {
+        $Lines += "        $(ConvertTo-PowerShellLiteral -Value $AllowedFile)"
+    }
+    $Lines += @(
+        '    )'
+        '    AllowedStagedFiles = @('
+    )
+    foreach ($AllowedStagedFile in $AllowedStagedFiles) {
+        $Lines += "        $(ConvertTo-PowerShellLiteral -Value $AllowedStagedFile)"
+    }
+    $Lines += @(
+        '    )'
+        "    ExpectedBranch = 'main'"
+        "    ExpectedPushUrl = $(ConvertTo-PowerShellLiteral -Value $ExpectedPushUrl)"
+        "    Remote = 'origin'"
+        '}'
+        '& $HarnessPath @HarnessParams'
+        'exit $LASTEXITCODE'
+    )
+    Set-Content -LiteralPath $WrapperFile -Value $Lines -Encoding UTF8
+    return $WrapperFile
+}
+
+function ConvertTo-ProcessArgument {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Value
+    )
+
+    if ($Value -notmatch '[\s"]') {
+        return $Value
+    }
+
+    return '"' + $Value.Replace('"', '\"') + '"'
+}
+
+function Invoke-HarnessProcess {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Case,
+
+        [Parameter(Mandatory = $true)]
+        [string]$WorkingDirectory,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$AllowedFiles,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$AllowedStagedFiles,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedPushUrl
+    )
+
+    $WrapperFile = New-HarnessWrapper `
+        -Case $Case `
+        -ExpectedRoot $ExpectedRoot `
+        -AllowedFiles $AllowedFiles `
+        -AllowedStagedFiles $AllowedStagedFiles `
+        -ExpectedPushUrl $ExpectedPushUrl
+
+    $ArgumentTokens = @(
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        $WrapperFile
+    )
+
+    $Psi = New-Object System.Diagnostics.ProcessStartInfo
+    $Psi.FileName = $ShellExecutable
+    $Psi.Arguments = ($ArgumentTokens | ForEach-Object { ConvertTo-ProcessArgument -Value $_ }) -join ' '
+    $Psi.WorkingDirectory = $WorkingDirectory
+    $Psi.UseShellExecute = $false
+    $Psi.CreateNoWindow = $true
+    $Psi.RedirectStandardOutput = $true
+    $Psi.RedirectStandardError = $true
+    $Psi.EnvironmentVariables['Path'] = "$GitleaksDirectory;$OriginalPath"
+    try {
+        $Psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+        $Psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+    }
+    catch {
+        # Keep the platform default if unavailable.
+    }
+
+    $Process = New-Object System.Diagnostics.Process
+    $Process.StartInfo = $Psi
+    [void]$Process.Start()
+    $Stdout = $Process.StandardOutput.ReadToEnd()
+    $Stderr = $Process.StandardError.ReadToEnd()
+    $Process.WaitForExit()
+
+    [pscustomobject]@{
+        ExitCode = $Process.ExitCode
+        Stdout = $Stdout
+        Stderr = $Stderr
+        Combined = "$Stdout`n$Stderr"
+        Command = "$($Psi.FileName) $($Psi.Arguments)"
+        WorkingDirectory = $WorkingDirectory
+        WrapperFile = $WrapperFile
+    }
+}
+
+function Assert-SuccessResult {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Case,
+
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Result
+    )
+
+    $PassMarkers = @(
+        'PASS: Repository Root OK'
+        'PASS: Branch OK'
+        'PASS: Push URL OK'
+        'PASS: Write Set OK'
+        'PASS: Stage Set OK'
+        'PASS: Secret Scan OK'
+    )
+    $HasPassMarkers = @($PassMarkers | Where-Object { $Result.Combined -notmatch [regex]::Escape($_) }).Count -eq 0
+    $HasStopMarker = $Result.Combined -match 'STOP:'
+    $HasExpectedGitleaksSource = $Result.Combined -match [regex]::Escape("GITLEAKS_SOURCE=$GitleaksPath")
+    $HasTestGitleaksSource = $Result.Combined -match [regex]::Escape("GITLEAKS_TEST_SOURCE=$GitleaksPath")
+    $Pass = $Result.ExitCode -eq 0 -and $HasPassMarkers -and -not $HasStopMarker -and $HasExpectedGitleaksSource -and $HasTestGitleaksSource
+
+    $ResultText = @(
+        "SHELL: $ShellVersion"
+        "CASE: $Case"
+        "CHILD_COMMAND: $($Result.Command)"
+        "WORKING_DIRECTORY: $($Result.WorkingDirectory)"
+        "CHILD_EXIT_CODE: $($Result.ExitCode)"
+        'EXPECTED_EXIT_CODE: 0'
+        'EXPECTED_GITLEAKS_PATH:'
+        $GitleaksPath
+        'STDOUT_BEGIN'
+        $Result.Stdout.TrimEnd()
+        'STDOUT_END'
+        'STDERR_BEGIN'
+        $Result.Stderr.TrimEnd()
+        'STDERR_END'
+        "HAS_PASS_MARKERS: $HasPassMarkers"
+        "HAS_STOP_MARKER: $HasStopMarker"
+        "HAS_HARNESS_GITLEAKS_SOURCE: $HasExpectedGitleaksSource"
+        "HAS_TEST_GITLEAKS_SOURCE: $HasTestGitleaksSource"
+        "TEST_RESULT: $(if ($Pass) { 'PASS' } else { 'FAIL' })"
+    ) -join "`r`n"
+    $CaseFile = Join-Path $EvidencePath ("{0}.txt" -f $Case.ToLowerInvariant().Replace('_', '-'))
+    [System.IO.File]::WriteAllText($CaseFile, $ResultText, [System.Text.UTF8Encoding]::new($false))
+
+    [pscustomobject]@{
+        Case = $Case
+        Shell = $ShellVersion
+        ExitCode = $Result.ExitCode
+        GitleaksSource = $GitleaksPath
+        Verdict = if ($Pass) { 'PASS' } else { 'FAIL' }
+    }
+}
+
+$Passed = $false
+try {
+    New-Item -ItemType Directory -Path $TestRoot -Force | Out-Null
+    New-Item -ItemType Directory -Path $RepoPath, $WrapperPath, $EvidencePath -Force | Out-Null
+
+    $GitleaksInfo = Get-VerifiedGitleaksSource
+    $GitleaksPath = $GitleaksInfo.Path
+    $GitleaksDirectory = $GitleaksInfo.Directory
+    $VerifiedGitleaksSource = $GitleaksInfo.Path
+    Write-Output "SHELL_VERSION=$ShellVersion"
+    Write-Output "GITLEAKS_RESOLVED_PATH=$VerifiedGitleaksSource"
+    Write-Output "TEST_ROOT=$TestRoot"
+
+    $ShellExecutable = if ($PSEdition -eq 'Core') {
+        Join-Path $PSHOME 'pwsh.exe'
+    }
+    else {
+        Join-Path $PSHOME 'powershell.exe'
+    }
+
+    $Results = @()
+
+    $RemoteUrl = Reset-Scenario
+    Write-TestFile -RelativePath 'docs/article.md' -Content '# Synthetic success article'
+    Write-TestFile -RelativePath 'public/article.html' -Content '<p>Synthetic success article</p>'
+    Commit-TestBaseline -Paths @('docs/article.md', 'public/article.html')
+    $Results += Assert-SuccessResult -Case 'SUCCESS_CASE_1' -Result (Invoke-HarnessProcess `
+        -Case 'SUCCESS_CASE_1' `
+        -WorkingDirectory $RepoPath `
+        -ExpectedRoot $RepoPath `
+        -AllowedFiles @('docs/article.md', 'public/article.html') `
+        -AllowedStagedFiles @('docs/article.md', 'public/article.html') `
+        -ExpectedPushUrl $RemoteUrl)
+
+    $RemoteUrl = Reset-Scenario
+    Write-TestFile -RelativePath 'docs/article.md' -Content '# Synthetic success baseline'
+    Commit-TestBaseline -Paths @('docs/article.md')
+    Write-TestFile -RelativePath 'docs/article.md' -Content '# Synthetic allowed success change'
+    Invoke-TestGit -GitArgs @('-C', $RepoPath, 'add', 'docs/article.md') | Out-Null
+    $Results += Assert-SuccessResult -Case 'SUCCESS_CASE_2' -Result (Invoke-HarnessProcess `
+        -Case 'SUCCESS_CASE_2' `
+        -WorkingDirectory $RepoPath `
+        -ExpectedRoot $RepoPath `
+        -AllowedFiles @('docs/article.md') `
+        -AllowedStagedFiles @('docs/article.md') `
+        -ExpectedPushUrl $RemoteUrl)
+
+    $Results | Format-Table -AutoSize
+    $SourceHashAfter = (Get-FileHash -Algorithm SHA256 -LiteralPath $SourcePath).Hash
+    $FailClosedHashAfter = (Get-FileHash -Algorithm SHA256 -LiteralPath $FailClosedTestPath).Hash
+    $ProjectSourceUnchanged = $SourceHashBefore -eq $SourceHashAfter -and $FailClosedHashBefore -eq $FailClosedHashAfter
+    $PathRestored = $env:Path -eq $OriginalPath
+    Write-Output "PROJECT_SOURCE_UNCHANGED=$ProjectSourceUnchanged"
+    Write-Output 'NETWORK_PUSH_PERFORMED=NO'
+    Write-Output 'GLOBAL_GIT_CONFIG_CHANGED=NO'
+    Write-Output "PERSISTENT_PATH_RESTORED=$PathRestored"
+
+    $Passed = (@($Results | Where-Object { $_.Verdict -ne 'PASS' }).Count -eq 0) -and $ProjectSourceUnchanged -and $PathRestored
+    if ($Passed) {
+        Write-Output 'FINAL_RESULT=PASS'
+        exit 0
+    }
+
+    Write-Error 'FINAL_RESULT=FAIL'
+    exit 1
+}
+finally {
+    # Retain test-owned evidence and synthetic repositories for review.
+}
