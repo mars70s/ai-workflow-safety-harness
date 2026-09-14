@@ -267,12 +267,23 @@ function New-HarnessWrapper {
         [string[]]$AllowedStagedFiles,
 
         [Parameter(Mandatory = $true)]
-        [string]$ExpectedPushUrl
+        [string]$ExpectedPushUrl,
+
+        [string]$HarnessPathOverride,
+
+        [switch]$PreInvocationSuccess
     )
 
     $WrapperFile = Join-Path $WrapperPath ("{0}.ps1" -f $Case.ToLowerInvariant().Replace('_', '-'))
+    $HarnessLiteral = if ($HarnessPathOverride) {
+        ConvertTo-PowerShellLiteral -Value $HarnessPathOverride
+    }
+    else {
+        ConvertTo-PowerShellLiteral -Value $SourcePath
+    }
     $Lines = @(
-        "`$HarnessPath = $(ConvertTo-PowerShellLiteral -Value $SourcePath)"
+        "`$ErrorActionPreference = 'Stop'"
+        "`$HarnessPath = $HarnessLiteral"
         "`$ExpectedGitleaksPath = $(ConvertTo-PowerShellLiteral -Value $GitleaksPath)"
         '$GitleaksCommand = Get-Command gitleaks -CommandType Application -ErrorAction SilentlyContinue'
         'if (-not $GitleaksCommand -or $GitleaksCommand.Source -cne $ExpectedGitleaksPath) {'
@@ -300,8 +311,26 @@ function New-HarnessWrapper {
         "    ExpectedPushUrl = $(ConvertTo-PowerShellLiteral -Value $ExpectedPushUrl)"
         "    Remote = 'origin'"
         '}'
-        '& $HarnessPath @HarnessParams'
-        'exit $LASTEXITCODE'
+    )
+    if ($PreInvocationSuccess) {
+        $Lines += '& git --version | Out-Null'
+    }
+    $Lines += @(
+        '$HarnessExitCode = $null'
+        '$global:LASTEXITCODE = $null'
+        'try {'
+        '    & $HarnessPath @HarnessParams'
+        '    $HarnessExitCode = $LASTEXITCODE'
+        '}'
+        'catch {'
+        '    Write-Output "WRAPPER_INVOCATION_FAILURE_CAUGHT=YES"'
+        '    Write-Error $_ -ErrorAction Continue'
+        '    exit 1'
+        '}'
+        'if ($null -eq $HarnessExitCode -or $HarnessExitCode -ne 0) {'
+        '    exit 1'
+        '}'
+        'exit 0'
     )
     Set-Content -LiteralPath $WrapperFile -Value $Lines -Encoding UTF8
     return $WrapperFile
@@ -544,6 +573,52 @@ try {
             ($M2WarningLines -join "`r`n")
         ) `
         -RequireNoGitWarningData
+
+    $RemoteUrl = Reset-Scenario
+    Write-TestFile -RelativePath 'docs/article.md' -Content '# Synthetic staged baseline'
+    Commit-TestBaseline -Paths @('docs/article.md')
+    [System.IO.File]::WriteAllText(
+        (Join-Path $RepoPath 'docs/article.md'),
+        "# Synthetic non-empty staged change`n",
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    Invoke-TestGit -GitArgs @('-C', $RepoPath, 'add', 'docs/article.md') | Out-Null
+    $Case3StagedPaths = @(
+        Invoke-TestGit -GitArgs @('-C', $RepoPath, 'diff', '--cached', '--no-renames', '--name-only') |
+            ForEach-Object { $_.ToString().Trim() } |
+            Where-Object { $_ }
+    )
+    $Case3StagedNumstat = @(
+        Invoke-TestGit -GitArgs @('-C', $RepoPath, 'diff', '--cached', '--no-renames', '--numstat') |
+            ForEach-Object { $_.ToString().Trim() } |
+            Where-Object { $_ }
+    )
+    $Case3StagedDiffNonEmpty = $Case3StagedPaths.Count -eq 1 -and
+        $Case3StagedPaths[0] -ceq 'docs/article.md' -and
+        $Case3StagedNumstat.Count -gt 0
+    if (-not $Case3StagedDiffNonEmpty) {
+        throw 'SUCCESS_CASE_3 fixture did not produce the required non-empty staged diff.'
+    }
+    $Case3RemoteRefsBefore = @(Get-SyntheticRemoteRefs)
+    $SuccessCase3Result = Invoke-HarnessProcess `
+        -Case 'SUCCESS_CASE_3' `
+        -WorkingDirectory $RepoPath `
+        -ExpectedRoot $RepoPath `
+        -AllowedFiles @('docs/article.md') `
+        -AllowedStagedFiles @('docs/article.md') `
+        -ExpectedPushUrl $RemoteUrl
+    $Case3RemoteRefsAfter = @(Get-SyntheticRemoteRefs)
+    $Case3RemoteRefsUnchanged = Compare-StringArrays $Case3RemoteRefsBefore $Case3RemoteRefsAfter
+    $SyntheticRemoteRefsUnchanged = $SyntheticRemoteRefsUnchanged -and $Case3RemoteRefsUnchanged
+    $Results += Assert-SuccessResult -Case 'SUCCESS_CASE_3' -Result $SuccessCase3Result `
+        -AdditionalEvidence (
+            "SYNTHETIC_REMOTE_REFS_BEFORE_COUNT=$($Case3RemoteRefsBefore.Count)`r`n" +
+            "SYNTHETIC_REMOTE_REFS_AFTER_COUNT=$($Case3RemoteRefsAfter.Count)`r`n" +
+            "SYNTHETIC_REMOTE_REFS_UNCHANGED=$Case3RemoteRefsUnchanged`r`n" +
+            "STAGED_DIFF_NONEMPTY=$Case3StagedDiffNonEmpty`r`n" +
+            "STAGED_PATHS=$($Case3StagedPaths -join ',')`r`n" +
+            "STAGED_NUMSTAT=$($Case3StagedNumstat -join ';')"
+        )
 
     $Results | Format-Table -AutoSize
     $SourceHashAfter = (Get-FileHash -Algorithm SHA256 -LiteralPath $SourcePath).Hash

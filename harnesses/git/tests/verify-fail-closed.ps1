@@ -156,18 +156,33 @@ function New-HarnessWrapper {
         [string[]]$AllowedStagedFiles,
 
         [Parameter(Mandatory = $true)]
-        [string]$ExpectedPushUrl
+        [string]$ExpectedPushUrl,
+
+        [string]$HarnessPathOverride,
+
+        [switch]$PreInvocationSuccess,
+
+        [switch]$EmptyAllowedFiles
     )
 
     $WrapperFile = Join-Path $WrapperPath ("{0}.ps1" -f $Case.ToLowerInvariant().Replace('_', '-'))
+    $HarnessLiteral = if ($HarnessPathOverride) {
+        ConvertTo-PowerShellLiteral -Value $HarnessPathOverride
+    }
+    else {
+        ConvertTo-PowerShellLiteral -Value $SourcePath
+    }
     $Lines = @(
-        "`$HarnessPath = $(ConvertTo-PowerShellLiteral -Value $SourcePath)"
+        "`$ErrorActionPreference = 'Stop'"
+        "`$HarnessPath = $HarnessLiteral"
         '$HarnessParams = @{'
         "    ExpectedRootPath = $(ConvertTo-PowerShellLiteral -Value $ExpectedRoot)"
         '    AllowedFiles = @('
     )
-    foreach ($AllowedFile in $AllowedFiles) {
-        $Lines += "        $(ConvertTo-PowerShellLiteral -Value $AllowedFile)"
+    if (-not $EmptyAllowedFiles) {
+        foreach ($AllowedFile in $AllowedFiles) {
+            $Lines += "        $(ConvertTo-PowerShellLiteral -Value $AllowedFile)"
+        }
     }
     $Lines += @(
         '    )'
@@ -191,9 +206,25 @@ function New-HarnessWrapper {
             '}'
         )
     }
+    if ($PreInvocationSuccess) {
+        $Lines += '& git --version | Out-Null'
+    }
     $Lines += @(
-        '& $HarnessPath @HarnessParams'
-        'exit $LASTEXITCODE'
+        '$HarnessExitCode = $null'
+        '$global:LASTEXITCODE = $null'
+        'try {'
+        '    & $HarnessPath @HarnessParams'
+        '    $HarnessExitCode = $LASTEXITCODE'
+        '}'
+        'catch {'
+        '    Write-Output "WRAPPER_INVOCATION_FAILURE_CAUGHT=YES"'
+        '    Write-Error $_ -ErrorAction Continue'
+        '    exit 1'
+        '}'
+        'if ($null -eq $HarnessExitCode -or $HarnessExitCode -ne 0) {'
+        '    exit 1'
+        '}'
+        'exit 0'
     )
     Set-Content -LiteralPath $WrapperFile -Value $Lines -Encoding UTF8
     return $WrapperFile
@@ -265,7 +296,13 @@ function Invoke-HarnessProcess {
         [Parameter(Mandatory = $true)]
         [string]$ExpectedPushUrl,
 
-        [string]$PathOverride
+        [string]$PathOverride,
+
+        [string]$HarnessPathOverride,
+
+        [switch]$PreInvocationSuccess,
+
+        [switch]$EmptyAllowedFiles
     )
 
     $WrapperFile = New-HarnessWrapper `
@@ -273,7 +310,10 @@ function Invoke-HarnessProcess {
         -ExpectedRoot $ExpectedRoot `
         -AllowedFiles $AllowedFiles `
         -AllowedStagedFiles $AllowedStagedFiles `
-        -ExpectedPushUrl $ExpectedPushUrl
+        -ExpectedPushUrl $ExpectedPushUrl `
+        -HarnessPathOverride $HarnessPathOverride `
+        -PreInvocationSuccess:$PreInvocationSuccess `
+        -EmptyAllowedFiles:$EmptyAllowedFiles
 
     $ArgumentTokens = @(
         '-NoLogo',
@@ -411,6 +451,35 @@ function Assert-CaseResult {
     }
 }
 
+function Assert-WrapperContract {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Result,
+
+        [Parameter(Mandatory = $true)]
+        [int]$ExpectedExitCode,
+
+        [switch]$RequireInvocationCatch
+    )
+
+    $HasInvocationCatch = $Result.Combined -match 'WRAPPER_INVOCATION_FAILURE_CAUGHT=YES'
+    $Pass = $Result.ExitCode -eq $ExpectedExitCode -and
+        (-not $RequireInvocationCatch -or $HasInvocationCatch)
+    if (-not $Pass) {
+        throw "WRAPPER_CONTRACT_$Name failed: expected exit $ExpectedExitCode, observed $($Result.ExitCode)."
+    }
+
+    [pscustomobject]@{
+        Name = $Name
+        ExitCode = $Result.ExitCode
+        InvocationCatch = $HasInvocationCatch
+        Verdict = 'PASS'
+    }
+}
+
 $Passed = $false
 try {
     New-Item -ItemType Directory -Path $TestRoot -Force | Out-Null
@@ -422,21 +491,55 @@ try {
     Write-Output "GITLEAKS_RESOLVED_PATH=$ResolvedGitleaksPath"
 
     $Results = @()
+    $WrapperContractResults = @()
 
     $RemoteUrl = Reset-Scenario
     Write-TestFile -RelativePath 'docs/article.md' -Content '# Test article'
     Write-TestFile -RelativePath 'public/article.html' -Content '<p>Test article</p>'
     Commit-TestBaseline -Paths @('docs/article.md', 'public/article.html')
     Write-TestFile -RelativePath 'config/new-secret.env' -Content 'DUMMY_TEST_VALUE=not-a-credential'
-    $Results += Assert-CaseResult -Case 'CASE_1' -Result (Invoke-HarnessProcess `
+    $Case1Result = Invoke-HarnessProcess `
         -Case 'CASE_1' `
         -WorkingDirectory (Join-Path $RepoPath 'docs') `
         -ExpectedRoot $RepoPath `
         -AllowedFiles @('docs/article.md', 'public/article.html') `
         -AllowedStagedFiles @('docs/article.md', 'public/article.html') `
-        -ExpectedPushUrl $RemoteUrl) `
+        -ExpectedPushUrl $RemoteUrl
+    $Results += Assert-CaseResult -Case 'CASE_1' -Result $Case1Result `
         -ExpectedMarker 'GSH_STOP_WRITE_SET:' `
         -RequiredMarker 'config/new-secret.env'
+    $WrapperContractResults += Assert-WrapperContract -Name 'HARNESS_STOP' -Result $Case1Result -ExpectedExitCode 1
+
+    $MissingHarnessResult = Invoke-HarnessProcess `
+        -Case 'WRAPPER_PATH_MISSING' `
+        -WorkingDirectory $RepoPath `
+        -ExpectedRoot $RepoPath `
+        -AllowedFiles @('docs/article.md') `
+        -AllowedStagedFiles @('docs/article.md') `
+        -ExpectedPushUrl $RemoteUrl `
+        -HarnessPathOverride (Join-Path $TestRoot 'missing-harness.ps1')
+    $WrapperContractResults += Assert-WrapperContract -Name 'HARNESS_PATH_MISSING' -Result $MissingHarnessResult -ExpectedExitCode 1 -RequireInvocationCatch
+
+    $ParameterBindingResult = Invoke-HarnessProcess `
+        -Case 'WRAPPER_PARAMETER_BINDING_FAILURE' `
+        -WorkingDirectory $RepoPath `
+        -ExpectedRoot $RepoPath `
+        -AllowedFiles @('docs/article.md') `
+        -AllowedStagedFiles @('docs/article.md') `
+        -ExpectedPushUrl $RemoteUrl `
+        -EmptyAllowedFiles
+    $WrapperContractResults += Assert-WrapperContract -Name 'PARAMETER_BINDING_FAILURE' -Result $ParameterBindingResult -ExpectedExitCode 1 -RequireInvocationCatch
+
+    $StaleLastExitCodeResult = Invoke-HarnessProcess `
+        -Case 'WRAPPER_STALE_LASTEXITCODE' `
+        -WorkingDirectory $RepoPath `
+        -ExpectedRoot $RepoPath `
+        -AllowedFiles @('docs/article.md') `
+        -AllowedStagedFiles @('docs/article.md') `
+        -ExpectedPushUrl $RemoteUrl `
+        -HarnessPathOverride (Join-Path $TestRoot 'missing-harness-after-success.ps1') `
+        -PreInvocationSuccess
+    $WrapperContractResults += Assert-WrapperContract -Name 'STALE_LASTEXITCODE_PRECONDITION' -Result $StaleLastExitCodeResult -ExpectedExitCode 1 -RequireInvocationCatch
 
     $RemoteUrl = Reset-Scenario
     Write-TestFile -RelativePath 'config/app.json' -Content '{"mode":"test"}'
@@ -742,8 +845,13 @@ keywords = ["SYNTHETIC_GITLEAKS_TEST_"]
         )
 
     $Results | Format-Table -AutoSize
+    $WrapperContractResults | Format-Table -AutoSize
+    foreach ($WrapperContractResult in $WrapperContractResults) {
+        Write-Output "WRAPPER_CONTRACT_$($WrapperContractResult.Name)=$($WrapperContractResult.Verdict)"
+    }
     $FalsePass = @($Results | Where-Object { $_.ForbiddenPass -eq $true }).Count -gt 0
-    $Passed = (@($Results | Where-Object { $_.Verdict -ne 'PASS' }).Count -eq 0) -and -not $FalsePass
+    $WrapperContractPassed = @($WrapperContractResults | Where-Object { $_.Verdict -ne 'PASS' }).Count -eq 0
+    $Passed = (@($Results | Where-Object { $_.Verdict -ne 'PASS' }).Count -eq 0) -and $WrapperContractPassed -and -not $FalsePass
     if ($Passed) {
         Write-Output 'FALSE_PASS_OBSERVED=NO'
         Write-Output 'FINAL_RESULT=PASS'

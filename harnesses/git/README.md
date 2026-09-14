@@ -16,7 +16,7 @@ The current tests directly exercise these gates:
 6. Secret Scan: unavailable Gitleaks, discovered-but-unexecutable Gitleaks, an actual real-Gitleaks finding, and a successful real-Gitleaks scan.
 7. Fail-closed STOP behavior.
 
-The success path directly exercises a valid clean workflow and a valid allowed change, including the line-ending warning condition described below. This is bounded coverage, not exhaustive testing of Git, PowerShell, Gitleaks, or all edge cases.
+The success path directly exercises three workflows: a valid clean workflow; the M2 line-ending warning condition with an initially unstaged allowed change; and a valid non-empty allowed staged diff scanned successfully by real Gitleaks. This is bounded coverage, not exhaustive testing of Git, PowerShell, Gitleaks, or all edge cases.
 
 ## Validation reference environments
 
@@ -25,7 +25,7 @@ The success path directly exercises a valid clean workflow and a valid allowed c
 - Windows PowerShell 5.1.26100.9444
 - Gitleaks 8.30.1
 
-The fail-closed suite passed 14 cases under PowerShell 7 and 14 cases under Windows PowerShell 5.1: **28/28 PASS**. The positive suite passed 2 cases under each shell using real Gitleaks 8.30.1: **4/4 PASS**. These are validated reference environments and test results, not universal compatibility guarantees.
+The fail-closed suite passed 14 cases under PowerShell 7 and 14 cases under Windows PowerShell 5.1: **28/28 PASS**. The positive suite passed 3 cases under each shell using real Gitleaks 8.30.1: **6/6 PASS**. Success Case 2 may exercise an empty staged diff after the Harness-relevant unstaged warning path; Success Case 3 explicitly exercises a non-empty staged diff. These are validated reference environments and test results, not universal compatibility guarantees.
 
 ## Invocation contract
 
@@ -38,10 +38,11 @@ The Harness script requires:
 - `-ExpectedPushUrl`: the exact expected push URL; and
 - `-Remote`: the remote to inspect, defaulting to `origin`.
 
-Gitleaks is an external dependency. The Harness discovers an Application named `gitleaks` through `Get-Command gitleaks -CommandType Application` and invokes the staged scan. The validated automation boundary is a PowerShell wrapper or caller that creates native PowerShell objects, including a `[string[]]` `AllowedFiles` value, builds a parameter hashtable, invokes the Harness with splatting, and propagates the child exit code:
+Gitleaks is an external dependency. The Harness discovers an Application named `gitleaks` through `Get-Command gitleaks -CommandType Application` and invokes the staged scan. The caller should resolve the Harness script path independently; the target repository root is a separate parameter/state. The validated automation boundary is a PowerShell wrapper or caller that creates native PowerShell objects, including a `[string[]]` `AllowedFiles` value, builds a parameter hashtable, invokes the Harness with splatting, and propagates both invocation failures and the child exit code fail-closed:
 
 ```powershell
-$HarnessPath = '.\src\git-safety-harness.ps1'
+$ErrorActionPreference = 'Stop'
+$HarnessPath = '<path-to-harness>\harnesses\git\src\git-safety-harness.ps1'
 [string[]]$AllowedFiles = @('docs/article.md', 'public/article.html')
 [string[]]$AllowedStagedFiles = @('docs/article.md', 'public/article.html')
 $HarnessParams = @{
@@ -52,11 +53,23 @@ $HarnessParams = @{
   ExpectedPushUrl = '<exact-push-url>'
   Remote = 'origin'
 }
-& $HarnessPath @HarnessParams
-exit $LASTEXITCODE
+$HarnessExitCode = $null
+$global:LASTEXITCODE = $null
+try {
+  & $HarnessPath @HarnessParams
+  $HarnessExitCode = $LASTEXITCODE
+}
+catch {
+  Write-Error $_ -ErrorAction Continue
+  exit 1
+}
+if ($null -eq $HarnessExitCode -or $HarnessExitCode -ne 0) {
+  exit 1
+}
+exit 0
 ```
 
-This wrapper/splatting form is the validated multi-file automation pattern. Direct `-File` invocation is not the validated general multi-value interface for `AllowedFiles`; shell-to-PowerShell array binding can differ, so `@('a', 'b')` should not be passed as though it were native external command-line array syntax. A direct `-File` call remains useful only for a single-value parameter when its shell binding is understood. Success returns exit code 0. A STOP path returns a non-zero exit code. Dot-sourcing and arbitrary in-process invocation are not claimed as fully validated invocation modes.
+This wrapper/splatting form is the validated multi-file automation pattern. Its explicit error boundary returns exit 1 for wrapper-level invocation or binding failure, a missing/null child exit state, or a non-zero Harness result; only a successful Harness invocation returns exit 0. Direct `-File` invocation is not the validated general multi-value interface for `AllowedFiles`; shell-to-PowerShell array binding can differ, so `@('a', 'b')` should not be passed as though it were native external command-line array syntax. A direct `-File` call remains useful only for a single-value parameter when its shell binding is understood. Dot-sourcing and arbitrary in-process invocation are not claimed as fully validated invocation modes.
 
 ## Secret Scan scope
 
