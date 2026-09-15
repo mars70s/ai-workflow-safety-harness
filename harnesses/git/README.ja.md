@@ -2,7 +2,7 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-選択したGitワークフローの境界を検査する、ソフトなfail-closed型Safety Harnessのリファレンス実装です。現在のステータスは**PRE-PUBLICATION REFERENCE IMPLEMENTATION**です。
+選択したGitワークフローの境界を検査する、ソフトなfail-closed型Safety Harnessのリファレンス実装です。現在のステータスは**PUBLIC REFERENCE IMPLEMENTATION**です。
 
 HarnessはLayer 2のワークフロー制御です。sandboxでも独立したsecurity boundaryでもなく、本番環境での安全性を保証するものでもありません。別のLayer 3制御がアクセスを制約しない限り、raw Git、shell、API、filesystemなどの直接アクセスでバイパスされる可能性があります。
 

@@ -32,6 +32,6 @@ AI支援による作業では、後続の効果を許可する前に、ワーク
 
 ## Status
 
-PRE-PUBLICATION REFERENCE IMPLEMENTATION
+PUBLIC REFERENCE IMPLEMENTATION
 
 本番運用における安全性を保証するものではありません。[MIT License](LICENSE)を参照してください。公開と、その後の運用操作は、それぞれ別の判断段階です。

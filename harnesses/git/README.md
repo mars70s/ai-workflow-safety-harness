@@ -2,7 +2,7 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-A reference implementation of a soft, fail-closed Safety Harness for selected Git workflow boundaries. The current status is **PRE-PUBLICATION REFERENCE IMPLEMENTATION**.
+A reference implementation of a soft, fail-closed Safety Harness for selected Git workflow boundaries. The current status is **PUBLIC REFERENCE IMPLEMENTATION**.
 
 The Harness is a Layer-2 workflow control. It is not a sandbox, an independent security boundary, or a production security guarantee. Raw Git, shell, API, or filesystem access may bypass it unless separate Layer-3 controls constrain that access.
 

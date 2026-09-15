@@ -32,6 +32,6 @@ The background, design intent, and validation approach behind this reference imp
 
 ## Status
 
-PRE-PUBLICATION REFERENCE IMPLEMENTATION
+PUBLIC REFERENCE IMPLEMENTATION
 
 No production security guarantee is implied. See the [MIT License](LICENSE). Publication and later operational actions remain separate gates.
