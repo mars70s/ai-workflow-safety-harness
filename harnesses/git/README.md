@@ -1,8 +1,14 @@
 # Git Safety Harness
 
-A reference implementation of a soft, fail-closed Safety Harness for selected Git workflow boundaries. The current status is **PRE-PUBLICATION REVIEW**.
+[English](README.md) | [日本語](README.ja.md)
+
+A reference implementation of a soft, fail-closed Safety Harness for selected Git workflow boundaries. The current status is **PRE-PUBLICATION REFERENCE IMPLEMENTATION**.
 
 The Harness is a Layer-2 workflow control. It is not a sandbox, an independent security boundary, or a production security guarantee. Raw Git, shell, API, or filesystem access may bypass it unless separate Layer-3 controls constrain that access.
+
+Related documents: [Getting Started](docs/getting-started.md) | [Validation Record](docs/validation.md) | [Design](docs/design.md) | [Limitations](docs/limitations.md) | [MIT License](../../LICENSE)
+
+After the repository root is established, policy Git operations use the resolved root through `git -C <resolved-root> ...`. Initial root discovery is the bootstrap exception. The Write Set is derived from tracked unstaged changes, staged changes, and non-ignored untracked paths as implemented; the allow-set comparison is case-sensitive.
 
 ## Validated gates
 

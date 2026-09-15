@@ -1,17 +1,33 @@
 # AI Workflow Safety Harness
 
+[English](README.md) | [日本語](README.ja.md)
+
 Reference implementations of soft, fail-closed Safety Harnesses for AI-assisted workflows.
 
-A Safety Harness constrains workflow behavior, but it is not an independent security boundary. Raw Git, shell, API, filesystem, or other direct access may bypass a Harness where independent controls do not constrain that access. Independent enforcement belongs to a separate Layer 3.
+## Why this exists
 
-This repository accepts only implementations that conform to the Safety Harness design philosophy. It is not a general AI utility collection, tools dump, sandbox product, or complete security enforcement system.
+AI-assisted work needs explicit workflow checks before a later effect is allowed. This repository contains Layer-2 reference implementations that validate selected workflow state and stop when required conditions cannot be verified.
+
+The model has three distinct layers:
+
+1. **Layer 1 — Instruction:** the requested workflow and its authorization.
+2. **Layer 2 — Safety Harness:** executable checks around a selected workflow boundary.
+3. **Layer 3 — External Independent Enforcement:** controls outside the Harness that can constrain bypasses or the later effect.
+
+This repository implements Layer-2 reference implementations. A Harness is not a sandbox or an independent security boundary. Raw Git, shell, API, filesystem, or other direct access may bypass it when separate Layer-3 controls do not constrain that access. It does not guarantee that AI-generated work is semantically correct.
+
+This repository accepts only projects that conform to the Safety Harness design philosophy. It is not a general AI utility collection, tools dump, or complete security enforcement system.
 
 ## Current implementation
 
-- `harnesses/git/`
+- [Git Safety Harness](harnesses/git/README.md)
+- [Getting Started](harnesses/git/docs/getting-started.md)
+- [Validation Record](harnesses/git/docs/validation.md)
+- [Design](harnesses/git/docs/design.md)
+- [Limitations](harnesses/git/docs/limitations.md)
 
 ## Status
 
-PRE-PUBLICATION REVIEW
+PRE-PUBLICATION REFERENCE IMPLEMENTATION
 
-No production security guarantee is implied. License and publication decisions remain separate review gates.
+No production security guarantee is implied. See the [MIT License](LICENSE). Publication and later operational actions remain separate gates.
