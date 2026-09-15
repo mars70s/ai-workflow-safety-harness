@@ -26,6 +26,10 @@ AI支援による作業では、後続の効果を許可する前に、ワーク
 - [Design](harnesses/git/docs/design.md)
 - [Limitations](harnesses/git/docs/limitations.md)
 
+## 背景と解説記事
+
+このリファレンス実装の背景、設計意図、検証の考え方については、OSIIX.com の[「AI支援Git運用のSafety Harness — Write Setを実行前に検査する」](https://osiix.com/library/ai-git-safety-harness.html)で詳しく説明しています。
+
 ## Status
 
 PRE-PUBLICATION REFERENCE IMPLEMENTATION

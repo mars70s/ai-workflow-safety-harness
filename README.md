@@ -26,6 +26,10 @@ This repository accepts only projects that conform to the Safety Harness design 
 - [Design](harnesses/git/docs/design.md)
 - [Limitations](harnesses/git/docs/limitations.md)
 
+## Background and article
+
+The background, design intent, and validation approach behind this reference implementation are explained in more detail in the OSIIX.com article [“Safety Harness for AI-Assisted Git Operations — Checking the Write Set Before Execution”](https://osiix.com/en/library/ai-git-safety-harness.html).
+
 ## Status
 
 PRE-PUBLICATION REFERENCE IMPLEMENTATION
