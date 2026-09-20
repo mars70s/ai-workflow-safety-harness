@@ -1,0 +1,176 @@
+EVIDENCE_TYPE=SUCCESS_PATH_SUITE
+SHELL=Windows PowerShell 5.1
+SHELL_VERSION=5.1.26100.9444
+RUNNER_EXIT_CODE=0
+CASE_CATALOG_BEGIN
+SUCCESS_CASE_1 | valid clean workflow | expected child exit 0 and all PASS markers
+SUCCESS_CASE_2 | LF/CRLF stderr-isolation with initially unstaged allowed change | expected child exit 0 and all PASS markers
+SUCCESS_CASE_3 | non-empty allowed staged diff scanned by real Gitleaks | expected child exit 0 and all PASS markers
+CASE_CATALOG_END
+SUITE_STDOUT_BEGIN
+SHELL_VERSION=5.1.26100.9444
+GITLEAKS_RESOLVED_PATH=[REDACTED_LOCAL_PATH]\gitleaks-8.30.1\gitleaks.exe
+TEST_ROOT=[REDACTED_LOCAL_PATH]
+
+Case           Shell          ExitCode GitleaksSource                                                                  
+----           -----          -------- --------------                                                                  
+SUCCESS_CASE_1 5.1.26100.9444        0 [REDACTED_LOCAL_PATH]\gitleaks-8.30.1...
+SUCCESS_CASE_2 5.1.26100.9444        0 [REDACTED_LOCAL_PATH]\gitleaks-8.30.1...
+SUCCESS_CASE_3 5.1.26100.9444        0 [REDACTED_LOCAL_PATH]\gitleaks-8.30.1...
+
+
+PROJECT_SOURCE_UNCHANGED=True
+PROCESS_LOCAL_PATH_RESTORED=True
+SYNTHETIC_REMOTE_REFS_UNCHANGED=True
+GLOBAL_SCOPE_GIT_CONFIG_UNCHANGED=True
+M2_WARNING_REPRODUCED=True
+FINAL_RESULT=PASS
+
+SUITE_STDOUT_END
+SUITE_STDERR_BEGIN
+
+SUITE_STDERR_END
+DETAILED_CASE_RECORDS_BEGIN
+
+===== SUCCESS-CASE-1 =====
+SHELL: 5.1.26100.9444
+CASE: SUCCESS_CASE_1
+CHILD_COMMAND: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\success-case-1.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo
+CHILD_EXIT_CODE: 0
+EXPECTED_EXIT_CODE: 0
+EXPECTED_GITLEAKS_PATH:
+[REDACTED_LOCAL_PATH]\gitleaks-8.30.1\gitleaks.exe
+STDOUT_BEGIN
+GITLEAKS_TEST_SOURCE=[REDACTED_LOCAL_PATH]\gitleaks-8.30.1\gitleaks.exe
+PASS: branch=main
+GITLEAKS_SOURCE=[REDACTED_LOCAL_PATH]\gitleaks-8.30.1\gitleaks.exe
+PASS: Repository Root OK
+PASS: Branch OK
+PASS: Push URL OK
+PASS: Write Set OK
+PASS: Stage Set OK
+PASS: Secret Scan OK
+STDOUT_END
+STDERR_BEGIN
+
+    ○
+    │╲
+    │ ○
+    ○ ░
+    ░    gitleaks
+
+6:59AM INF 0 commits scanned.
+6:59AM INF scanned ~0 bytes (0) in 497ms
+6:59AM INF no leaks found
+STDERR_END
+HAS_PASS_MARKERS: True
+HAS_STOP_MARKER: False
+HAS_HARNESS_GITLEAKS_SOURCE: True
+HAS_TEST_GITLEAKS_SOURCE: True
+REQUIRE_NO_GIT_WARNING_DATA: False
+HAS_GIT_WARNING_AS_POLICY_DATA: False
+TEST_RESULT: PASS
+ADDITIONAL_EVIDENCE_BEGIN
+SYNTHETIC_REMOTE_REFS_BEFORE_COUNT=0
+SYNTHETIC_REMOTE_REFS_AFTER_COUNT=0
+SYNTHETIC_REMOTE_REFS_UNCHANGED=True
+ADDITIONAL_EVIDENCE_END
+
+===== SUCCESS-CASE-2 =====
+SHELL: 5.1.26100.9444
+CASE: SUCCESS_CASE_2
+CHILD_COMMAND: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\success-case-2.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo
+CHILD_EXIT_CODE: 0
+EXPECTED_EXIT_CODE: 0
+EXPECTED_GITLEAKS_PATH:
+[REDACTED_LOCAL_PATH]\gitleaks-8.30.1\gitleaks.exe
+STDOUT_BEGIN
+GITLEAKS_TEST_SOURCE=[REDACTED_LOCAL_PATH]\gitleaks-8.30.1\gitleaks.exe
+PASS: branch=main
+GITLEAKS_SOURCE=[REDACTED_LOCAL_PATH]\gitleaks-8.30.1\gitleaks.exe
+PASS: Repository Root OK
+PASS: Branch OK
+PASS: Push URL OK
+PASS: Write Set OK
+PASS: Stage Set OK
+PASS: Secret Scan OK
+STDOUT_END
+STDERR_BEGIN
+
+    ○
+    │╲
+    │ ○
+    ○ ░
+    ░    gitleaks
+
+6:59AM INF 0 commits scanned.
+6:59AM INF scanned ~0 bytes (0) in 449ms
+6:59AM INF no leaks found
+STDERR_END
+HAS_PASS_MARKERS: True
+HAS_STOP_MARKER: False
+HAS_HARNESS_GITLEAKS_SOURCE: True
+HAS_TEST_GITLEAKS_SOURCE: True
+REQUIRE_NO_GIT_WARNING_DATA: True
+HAS_GIT_WARNING_AS_POLICY_DATA: False
+TEST_RESULT: PASS
+ADDITIONAL_EVIDENCE_BEGIN
+SYNTHETIC_REMOTE_REFS_BEFORE_COUNT=0
+SYNTHETIC_REMOTE_REFS_AFTER_COUNT=0
+SYNTHETIC_REMOTE_REFS_UNCHANGED=True
+M2_HARNESS_RELEVANT_COMMAND=git diff --no-renames --name-only
+M2_WARNING_REPRODUCED=True
+git.exe : warning: in the working copy of 'docs/article.md', LF will be replaced by CRLF the next time Git touches it
+ADDITIONAL_EVIDENCE_END
+
+===== SUCCESS-CASE-3 =====
+SHELL: 5.1.26100.9444
+CASE: SUCCESS_CASE_3
+CHILD_COMMAND: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\success-case-3.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo
+CHILD_EXIT_CODE: 0
+EXPECTED_EXIT_CODE: 0
+EXPECTED_GITLEAKS_PATH:
+[REDACTED_LOCAL_PATH]\gitleaks-8.30.1\gitleaks.exe
+STDOUT_BEGIN
+GITLEAKS_TEST_SOURCE=[REDACTED_LOCAL_PATH]\gitleaks-8.30.1\gitleaks.exe
+PASS: branch=main
+GITLEAKS_SOURCE=[REDACTED_LOCAL_PATH]\gitleaks-8.30.1\gitleaks.exe
+PASS: Repository Root OK
+PASS: Branch OK
+PASS: Push URL OK
+PASS: Write Set OK
+PASS: Stage Set OK
+PASS: Secret Scan OK
+STDOUT_END
+STDERR_BEGIN
+
+    ○
+    │╲
+    │ ○
+    ○ ░
+    ░    gitleaks
+
+6:59AM INF 0 commits scanned.
+6:59AM INF scanned ~36 bytes (36 bytes) in 459ms
+6:59AM INF no leaks found
+STDERR_END
+HAS_PASS_MARKERS: True
+HAS_STOP_MARKER: False
+HAS_HARNESS_GITLEAKS_SOURCE: True
+HAS_TEST_GITLEAKS_SOURCE: True
+REQUIRE_NO_GIT_WARNING_DATA: False
+HAS_GIT_WARNING_AS_POLICY_DATA: False
+TEST_RESULT: PASS
+ADDITIONAL_EVIDENCE_BEGIN
+SYNTHETIC_REMOTE_REFS_BEFORE_COUNT=0
+SYNTHETIC_REMOTE_REFS_AFTER_COUNT=0
+SYNTHETIC_REMOTE_REFS_UNCHANGED=True
+STAGED_DIFF_NONEMPTY=True
+STAGED_PATHS=docs/article.md
+STAGED_NUMSTAT=1	1	docs/article.md
+ADDITIONAL_EVIDENCE_END
+
+DETAILED_CASE_RECORDS_END

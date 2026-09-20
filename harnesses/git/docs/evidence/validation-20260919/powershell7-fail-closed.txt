@@ -1,0 +1,649 @@
+EVIDENCE_TYPE=FAIL_CLOSED_SUITE
+SHELL=PowerShell 7
+SHELL_VERSION=7.6.6
+RUNNER_EXIT_CODE=0
+CASE_CATALOG_BEGIN
+CASE_1 | out-of-scope untracked file in Write Set | expected STOP and child exit 1
+CASE_2 | rename exposure in staged no-renames listing | expected STOP and child exit 1
+CASE_3 | Gitleaks unavailable | expected STOP and child exit 1
+CASE_4 | expected repository root cannot be resolved | expected STOP and child exit 1
+CASE_5 | discovered Gitleaks cannot execute | expected STOP and child exit 1
+CASE_6 | detached HEAD / symbolic branch unresolved | expected STOP and child exit 1
+CASE_7 | multiple configured push URLs | expected STOP and child exit 1
+CASE_8 | execution outside repository / root confirmation failure | expected STOP and child exit 1
+CASE_9 | staged paths differing only by case | expected STOP and child exit 1
+CASE_10 | different valid repository supplied as expected root | expected STOP and child exit 1
+CASE_11 | symbolic branch differs from expected branch | expected STOP and child exit 1
+CASE_12 | real Gitleaks finding from synthetic fixture rule | expected STOP and child exit 1
+CASE_13 | independently reachable Stage Set-specific failure | expected STOP and child exit 1
+CASE_14 | exactly one mismatching push URL | expected STOP and child exit 1
+CASE_CATALOG_END
+SUITE_STDOUT_BEGIN
+GITLEAKS_RESOLVED_PATH=[REDACTED_LOCAL_PATH]\gitleaks-8.30.1\gitleaks.exe
+
+Case    Shell ExitCode ForbiddenPass Verdict
+----    ----- -------- ------------- -------
+CASE_1  7.6.6        1         False PASS
+CASE_2  7.6.6        1         False PASS
+CASE_3  7.6.6        1         False PASS
+CASE_4  7.6.6        1         False PASS
+CASE_5  7.6.6        1         False PASS
+CASE_6  7.6.6        1         False PASS
+CASE_7  7.6.6        1         False PASS
+CASE_8  7.6.6        1         False PASS
+CASE_9  7.6.6        1         False PASS
+CASE_10 7.6.6        1         False PASS
+CASE_11 7.6.6        1         False PASS
+CASE_12 7.6.6        1         False PASS
+CASE_13 7.6.6        1         False PASS
+CASE_14 7.6.6        1         False PASS
+
+
+Name                            ExitCode InvocationCatch Verdict
+----                            -------- --------------- -------
+HARNESS_STOP                           1           False PASS
+HARNESS_PATH_MISSING                   1            True PASS
+PARAMETER_BINDING_FAILURE              1            True PASS
+STALE_LASTEXITCODE_PRECONDITION        1            True PASS
+
+WRAPPER_CONTRACT_HARNESS_STOP=PASS
+WRAPPER_CONTRACT_HARNESS_PATH_MISSING=PASS
+WRAPPER_CONTRACT_PARAMETER_BINDING_FAILURE=PASS
+WRAPPER_CONTRACT_STALE_LASTEXITCODE_PRECONDITION=PASS
+FALSE_PASS_OBSERVED=NO
+FINAL_RESULT=PASS
+
+SUITE_STDOUT_END
+SUITE_STDERR_BEGIN
+
+SUITE_STDERR_END
+DETAILED_CASE_RECORDS_BEGIN
+
+===== CASE-01 =====
+SHELL: PS7 / 7.6.6
+CASE: CASE_1
+CHILD_COMMAND: pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\case-1.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo\docs
+CHILD_EXIT_CODE: 1
+EXPECTED_EXIT_CODE: non-zero
+STDOUT_BEGIN
+PASS: branch=main
+  config/new-secret.env
+STDOUT_END
+STDERR_BEGIN
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-1.ps1:20
+Line |
+  20 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | GSH_STOP_WRITE_SET: Write Set contains unexpected changes.
+STDERR_END
+COMBINED_OUTPUT_BEGIN
+PASS: branch=main
+  config/new-secret.env
+
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-1.ps1:20
+Line |
+  20 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | GSH_STOP_WRITE_SET: Write Set contains unexpected changes.
+COMBINED_OUTPUT_END
+EXPECTED_MARKER: GSH_STOP_WRITE_SET:
+REQUIRED_MARKER: config/new-secret.env
+FORBIDDEN_MARKER: PASS: Secret Scan OK
+HAS_EXPECTED_MARKER: True
+HAS_REQUIRED_MARKER: True
+HAS_FORBIDDEN_PASS: False
+REQUIRE_EXPLICIT_STOP: False
+HAS_EXPLICIT_STOP: True
+RUNNER_PASS_EXPRESSION: True
+TEST_RESULT: PASS
+
+===== CASE-02 =====
+SHELL: PS7 / 7.6.6
+CASE: CASE_2
+CHILD_COMMAND: pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\case-2.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo
+CHILD_EXIT_CODE: 1
+EXPECTED_EXIT_CODE: non-zero
+STDOUT_BEGIN
+PASS: branch=main
+  config/app.json
+STDOUT_END
+STDERR_BEGIN
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-2.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | GSH_STOP_WRITE_SET: Write Set contains unexpected changes.
+STDERR_END
+COMBINED_OUTPUT_BEGIN
+PASS: branch=main
+  config/app.json
+
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-2.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | GSH_STOP_WRITE_SET: Write Set contains unexpected changes.
+COMBINED_OUTPUT_END
+EXPECTED_MARKER: GSH_STOP_WRITE_SET:
+REQUIRED_MARKER: config/app.json
+FORBIDDEN_MARKER: PASS: Secret Scan OK
+HAS_EXPECTED_MARKER: True
+HAS_REQUIRED_MARKER: True
+HAS_FORBIDDEN_PASS: False
+REQUIRE_EXPLICIT_STOP: False
+HAS_EXPLICIT_STOP: True
+RUNNER_PASS_EXPRESSION: True
+TEST_RESULT: PASS
+ADDITIONAL_EVIDENCE_BEGIN
+git diff --cached --no-renames --name-only
+config/app.json
+docs/article.md
+ADDITIONAL_EVIDENCE_END
+
+===== CASE-03 =====
+SHELL: PS7 / 7.6.6
+CASE: CASE_3
+CHILD_COMMAND: pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\case-3.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo
+CHILD_EXIT_CODE: 1
+EXPECTED_EXIT_CODE: non-zero
+STDOUT_BEGIN
+PASS: branch=main
+STDOUT_END
+STDERR_BEGIN
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-3.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | STOP: GSH_STOP_GITLEAKS_UNAVAILABLE: gitleaks is not available.
+STDERR_END
+COMBINED_OUTPUT_BEGIN
+PASS: branch=main
+
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-3.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | STOP: GSH_STOP_GITLEAKS_UNAVAILABLE: gitleaks is not available.
+COMBINED_OUTPUT_END
+EXPECTED_MARKER: GSH_STOP_GITLEAKS_UNAVAILABLE:
+REQUIRED_MARKER: NONE
+FORBIDDEN_MARKER: PASS: Secret Scan OK
+HAS_EXPECTED_MARKER: True
+HAS_REQUIRED_MARKER: True
+HAS_FORBIDDEN_PASS: False
+REQUIRE_EXPLICIT_STOP: False
+HAS_EXPLICIT_STOP: True
+RUNNER_PASS_EXPRESSION: True
+TEST_RESULT: PASS
+
+===== CASE-04 =====
+SHELL: PS7 / 7.6.6
+CASE: CASE_4
+CHILD_COMMAND: pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\case-4.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo
+CHILD_EXIT_CODE: 1
+EXPECTED_EXIT_CODE: non-zero
+STDOUT_BEGIN
+STDOUT_END
+STDERR_BEGIN
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-4.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | STOP: GSH_STOP_ROOT_RESOLUTION: Repository Root path resolution failed.
+STDERR_END
+COMBINED_OUTPUT_BEGIN
+
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-4.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | STOP: GSH_STOP_ROOT_RESOLUTION: Repository Root path resolution failed.
+COMBINED_OUTPUT_END
+EXPECTED_MARKER: GSH_STOP_ROOT_RESOLUTION:
+REQUIRED_MARKER: NONE
+FORBIDDEN_MARKER: PASS: Secret Scan OK
+HAS_EXPECTED_MARKER: True
+HAS_REQUIRED_MARKER: True
+HAS_FORBIDDEN_PASS: False
+REQUIRE_EXPLICIT_STOP: False
+HAS_EXPLICIT_STOP: True
+RUNNER_PASS_EXPRESSION: True
+TEST_RESULT: PASS
+
+===== CASE-05 =====
+SHELL: PS7 / 7.6.6
+CASE: CASE_5
+CHILD_COMMAND: pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\case-5.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo
+CHILD_EXIT_CODE: 1
+EXPECTED_EXIT_CODE: non-zero
+STDOUT_BEGIN
+GITLEAKS_TEST_SOURCE=[REDACTED_LOCAL_PATH]\fake-bin\gitleaks.exe
+PASS: branch=main
+GITLEAKS_SOURCE=[REDACTED_LOCAL_PATH]\fake-bin\gitleaks.exe
+STDOUT_END
+STDERR_BEGIN
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-5.ps1:22
+Line |
+  22 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | STOP: GSH_STOP_GITLEAKS_EXECUTION: gitleaks execution failed: �v���O���� 'gitleaks.exe' �����s�ł��܂���ł���: An error
+     | occurred trying to start process
+     | '[REDACTED_LOCAL_PATH]\fake-bin\gitleaks.exe' with working directory '[REDACTED_LOCAL_PATH]\repo'. The specified executable is not a valid application for this OS platform.�ʒu [REDACTED_LOCAL_PATH]\harnesses\git\src\git-safety-harness.ps1:206 ����:9 +         & $GitleaksCommand.Source git --staged --redact $RepositoryRo �c +         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~�B
+STDERR_END
+COMBINED_OUTPUT_BEGIN
+GITLEAKS_TEST_SOURCE=[REDACTED_LOCAL_PATH]\fake-bin\gitleaks.exe
+PASS: branch=main
+GITLEAKS_SOURCE=[REDACTED_LOCAL_PATH]\fake-bin\gitleaks.exe
+
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-5.ps1:22
+Line |
+  22 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | STOP: GSH_STOP_GITLEAKS_EXECUTION: gitleaks execution failed: �v���O���� 'gitleaks.exe' �����s�ł��܂���ł���: An error
+     | occurred trying to start process
+     | '[REDACTED_LOCAL_PATH]\fake-bin\gitleaks.exe' with working directory '[REDACTED_LOCAL_PATH]\repo'. The specified executable is not a valid application for this OS platform.�ʒu [REDACTED_LOCAL_PATH]\harnesses\git\src\git-safety-harness.ps1:206 ����:9 +         & $GitleaksCommand.Source git --staged --redact $RepositoryRo �c +         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~�B
+COMBINED_OUTPUT_END
+EXPECTED_MARKER: GSH_STOP_GITLEAKS_EXECUTION:
+REQUIRED_MARKER: GITLEAKS_TEST_SOURCE=[REDACTED_LOCAL_PATH]\fake-bin\gitleaks.exe
+FORBIDDEN_MARKER: PASS: Secret Scan OK
+HAS_EXPECTED_MARKER: True
+HAS_REQUIRED_MARKER: True
+HAS_FORBIDDEN_PASS: False
+REQUIRE_EXPLICIT_STOP: False
+HAS_EXPLICIT_STOP: True
+RUNNER_PASS_EXPRESSION: True
+TEST_RESULT: PASS
+
+===== CASE-06 =====
+SHELL: PS7 / 7.6.6
+CASE: CASE_6
+CHILD_COMMAND: pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\case-6.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo
+CHILD_EXIT_CODE: 1
+EXPECTED_EXIT_CODE: non-zero
+STDOUT_BEGIN
+STDOUT_END
+STDERR_BEGIN
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-6.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | STOP: GSH_STOP_GIT: git symbolic-ref --short HEAD failed. fatal: ref HEAD is not a symbolic ref
+STDERR_END
+COMBINED_OUTPUT_BEGIN
+
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-6.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | STOP: GSH_STOP_GIT: git symbolic-ref --short HEAD failed. fatal: ref HEAD is not a symbolic ref
+COMBINED_OUTPUT_END
+EXPECTED_MARKER: GSH_STOP_GIT:
+REQUIRED_MARKER: symbolic-ref --short HEAD
+FORBIDDEN_MARKER: PASS: Secret Scan OK
+HAS_EXPECTED_MARKER: True
+HAS_REQUIRED_MARKER: True
+HAS_FORBIDDEN_PASS: False
+REQUIRE_EXPLICIT_STOP: False
+HAS_EXPLICIT_STOP: True
+RUNNER_PASS_EXPRESSION: True
+TEST_RESULT: PASS
+
+===== CASE-07 =====
+SHELL: PS7 / 7.6.6
+CASE: CASE_7
+CHILD_COMMAND: pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\case-7.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo
+CHILD_EXIT_CODE: 1
+EXPECTED_EXIT_CODE: non-zero
+STDOUT_BEGIN
+PASS: branch=main
+STDOUT_END
+STDERR_BEGIN
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-7.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | GSH_STOP_PUSH_URL: push URL did not match the expected value.
+STDERR_END
+COMBINED_OUTPUT_BEGIN
+PASS: branch=main
+
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-7.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | GSH_STOP_PUSH_URL: push URL did not match the expected value.
+COMBINED_OUTPUT_END
+EXPECTED_MARKER: GSH_STOP_PUSH_URL:
+REQUIRED_MARKER: NONE
+FORBIDDEN_MARKER: PASS: Secret Scan OK
+HAS_EXPECTED_MARKER: True
+HAS_REQUIRED_MARKER: True
+HAS_FORBIDDEN_PASS: False
+REQUIRE_EXPLICIT_STOP: False
+HAS_EXPLICIT_STOP: True
+RUNNER_PASS_EXPRESSION: True
+TEST_RESULT: PASS
+ADDITIONAL_EVIDENCE_BEGIN
+git remote get-url --push --all origin
+[REDACTED_LOCAL_PATH]\remote.git
+[REDACTED_LOCAL_PATH]\alternate.git
+ADDITIONAL_EVIDENCE_END
+
+===== CASE-08 =====
+SHELL: PS7 / 7.6.6
+CASE: CASE_8
+CHILD_COMMAND: pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\case-8.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\not-a-repository
+CHILD_EXIT_CODE: 1
+EXPECTED_EXIT_CODE: non-zero
+STDOUT_BEGIN
+STDOUT_END
+STDERR_BEGIN
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-8.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | STOP: GSH_STOP_ROOT: Repository Root could not be confirmed. fatal: not a git repository (or any of the parent
+     | directories): .git
+STDERR_END
+COMBINED_OUTPUT_BEGIN
+
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-8.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | STOP: GSH_STOP_ROOT: Repository Root could not be confirmed. fatal: not a git repository (or any of the parent
+     | directories): .git
+COMBINED_OUTPUT_END
+EXPECTED_MARKER: GSH_STOP_ROOT:
+REQUIRED_MARKER: could not be confirmed
+FORBIDDEN_MARKER: PASS: Secret Scan OK
+HAS_EXPECTED_MARKER: True
+HAS_REQUIRED_MARKER: True
+HAS_FORBIDDEN_PASS: False
+REQUIRE_EXPLICIT_STOP: True
+HAS_EXPLICIT_STOP: True
+RUNNER_PASS_EXPRESSION: True
+TEST_RESULT: PASS
+
+===== CASE-09 =====
+SHELL: PS7 / 7.6.6
+CASE: CASE_9
+CHILD_COMMAND: pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\case-9.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo
+CHILD_EXIT_CODE: 1
+EXPECTED_EXIT_CODE: non-zero
+STDOUT_BEGIN
+PASS: branch=main
+  docs/casecollision.md
+STDOUT_END
+STDERR_BEGIN
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-9.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | GSH_STOP_WRITE_SET: Write Set contains unexpected changes.
+STDERR_END
+COMBINED_OUTPUT_BEGIN
+PASS: branch=main
+  docs/casecollision.md
+
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-9.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | GSH_STOP_WRITE_SET: Write Set contains unexpected changes.
+COMBINED_OUTPUT_END
+EXPECTED_MARKER: GSH_STOP_WRITE_SET:
+REQUIRED_MARKER: docs/casecollision.md
+FORBIDDEN_MARKER: PASS: Secret Scan OK
+HAS_EXPECTED_MARKER: True
+HAS_REQUIRED_MARKER: True
+HAS_FORBIDDEN_PASS: False
+REQUIRE_EXPLICIT_STOP: False
+HAS_EXPLICIT_STOP: True
+RUNNER_PASS_EXPRESSION: True
+TEST_RESULT: PASS
+ADDITIONAL_EVIDENCE_BEGIN
+git diff --cached --no-renames --name-only
+docs/CaseCollision.md
+docs/casecollision.md
+ADDITIONAL_EVIDENCE_END
+
+===== CASE-10 =====
+SHELL: PS7 / 7.6.6
+CASE: CASE_10
+CHILD_COMMAND: pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\case-10.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo
+CHILD_EXIT_CODE: 1
+EXPECTED_EXIT_CODE: non-zero
+STDOUT_BEGIN
+STDOUT_END
+STDERR_BEGIN
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-10.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | STOP: GSH_STOP_ROOT: unexpected Repository Root:
+     | [REDACTED_LOCAL_PATH]\repo
+STDERR_END
+COMBINED_OUTPUT_BEGIN
+
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-10.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | STOP: GSH_STOP_ROOT: unexpected Repository Root:
+     | [REDACTED_LOCAL_PATH]\repo
+COMBINED_OUTPUT_END
+EXPECTED_MARKER: GSH_STOP_ROOT:
+REQUIRED_MARKER: unexpected Repository Root
+FORBIDDEN_MARKER: PASS: Secret Scan OK
+HAS_EXPECTED_MARKER: True
+HAS_REQUIRED_MARKER: True
+HAS_FORBIDDEN_PASS: False
+REQUIRE_EXPLICIT_STOP: False
+HAS_EXPLICIT_STOP: True
+RUNNER_PASS_EXPRESSION: True
+TEST_RESULT: PASS
+
+===== CASE-11 =====
+SHELL: PS7 / 7.6.6
+CASE: CASE_11
+CHILD_COMMAND: pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\case-11.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo
+CHILD_EXIT_CODE: 1
+EXPECTED_EXIT_CODE: non-zero
+STDOUT_BEGIN
+STDOUT_END
+STDERR_BEGIN
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-11.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | GSH_STOP_BRANCH: unexpected branch: feature/mismatch
+STDERR_END
+COMBINED_OUTPUT_BEGIN
+
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-11.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | GSH_STOP_BRANCH: unexpected branch: feature/mismatch
+COMBINED_OUTPUT_END
+EXPECTED_MARKER: GSH_STOP_BRANCH:
+REQUIRED_MARKER: unexpected branch: feature/mismatch
+FORBIDDEN_MARKER: PASS: Secret Scan OK
+HAS_EXPECTED_MARKER: True
+HAS_REQUIRED_MARKER: True
+HAS_FORBIDDEN_PASS: False
+REQUIRE_EXPLICIT_STOP: False
+HAS_EXPLICIT_STOP: True
+RUNNER_PASS_EXPRESSION: True
+TEST_RESULT: PASS
+
+===== CASE-12 =====
+SHELL: PS7 / 7.6.6
+CASE: CASE_12
+CHILD_COMMAND: pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\case-12.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo
+CHILD_EXIT_CODE: 1
+EXPECTED_EXIT_CODE: non-zero
+STDOUT_BEGIN
+GITLEAKS_TEST_SOURCE=[REDACTED_LOCAL_PATH]\gitleaks-8.30.1\gitleaks.exe
+PASS: branch=main
+GITLEAKS_SOURCE=[REDACTED_LOCAL_PATH]\gitleaks-8.30.1\gitleaks.exe
+STDOUT_END
+STDERR_BEGIN
+
+    ○
+    │╲
+    │ ○
+    ○ ░
+    ░    gitleaks
+
+7:00AM INF 0 commits scanned.
+7:00AM INF scanned ~35 bytes (35 bytes) in 233ms
+7:00AM WRN leaks found: 1
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-12.ps1:22
+Line |
+  22 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | STOP: GSH_STOP_SECRET_SCAN: secret scan did not pass.
+STDERR_END
+COMBINED_OUTPUT_BEGIN
+GITLEAKS_TEST_SOURCE=[REDACTED_LOCAL_PATH]\gitleaks-8.30.1\gitleaks.exe
+PASS: branch=main
+GITLEAKS_SOURCE=[REDACTED_LOCAL_PATH]\gitleaks-8.30.1\gitleaks.exe
+
+
+    ○
+    │╲
+    │ ○
+    ○ ░
+    ░    gitleaks
+
+7:00AM INF 0 commits scanned.
+7:00AM INF scanned ~35 bytes (35 bytes) in 233ms
+7:00AM WRN leaks found: 1
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-12.ps1:22
+Line |
+  22 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | STOP: GSH_STOP_SECRET_SCAN: secret scan did not pass.
+COMBINED_OUTPUT_END
+EXPECTED_MARKER: GSH_STOP_SECRET_SCAN:
+REQUIRED_MARKER: leaks found: 1
+FORBIDDEN_MARKER: PASS: Secret Scan OK
+HAS_EXPECTED_MARKER: True
+HAS_REQUIRED_MARKER: True
+HAS_FORBIDDEN_PASS: False
+REQUIRE_EXPLICIT_STOP: False
+HAS_EXPLICIT_STOP: True
+RUNNER_PASS_EXPRESSION: True
+TEST_RESULT: PASS
+ADDITIONAL_EVIDENCE_BEGIN
+GITLEAKS_FINDING_PROBE_EXIT=1
+GITLEAKS_FINDING_MARKER=leaks found: 1
+
+    ○
+    │╲
+    │ ○
+    ○ ░
+    ░    gitleaks
+
+7:00AM INF 0 commits scanned.
+7:00AM INF scanned ~35 bytes (35 bytes) in 236ms
+7:00AM WRN leaks found: 1
+ADDITIONAL_EVIDENCE_END
+
+===== CASE-13 =====
+SHELL: PS7 / 7.6.6
+CASE: CASE_13
+CHILD_COMMAND: pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\case-13.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo
+CHILD_EXIT_CODE: 1
+EXPECTED_EXIT_CODE: non-zero
+STDOUT_BEGIN
+PASS: branch=main
+  docs/article.md
+STDOUT_END
+STDERR_BEGIN
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-13.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | GSH_STOP_STAGE_SET: Stage Set contains unexpected staged files.
+STDERR_END
+COMBINED_OUTPUT_BEGIN
+PASS: branch=main
+  docs/article.md
+
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-13.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | GSH_STOP_STAGE_SET: Stage Set contains unexpected staged files.
+COMBINED_OUTPUT_END
+EXPECTED_MARKER: GSH_STOP_STAGE_SET:
+REQUIRED_MARKER: docs/article.md
+FORBIDDEN_MARKER: PASS: Secret Scan OK
+HAS_EXPECTED_MARKER: True
+HAS_REQUIRED_MARKER: True
+HAS_FORBIDDEN_PASS: False
+REQUIRE_EXPLICIT_STOP: False
+HAS_EXPLICIT_STOP: True
+RUNNER_PASS_EXPRESSION: True
+TEST_RESULT: PASS
+
+===== CASE-14 =====
+SHELL: PS7 / 7.6.6
+CASE: CASE_14
+CHILD_COMMAND: pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File [REDACTED_LOCAL_PATH]\wrappers\case-14.ps1
+WORKING_DIRECTORY: [REDACTED_LOCAL_PATH]\repo
+CHILD_EXIT_CODE: 1
+EXPECTED_EXIT_CODE: non-zero
+STDOUT_BEGIN
+PASS: branch=main
+STDOUT_END
+STDERR_BEGIN
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-14.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | GSH_STOP_PUSH_URL: push URL did not match the expected value.
+STDERR_END
+COMBINED_OUTPUT_BEGIN
+PASS: branch=main
+
+Write-Error: [REDACTED_LOCAL_PATH]\wrappers\case-14.ps1:18
+Line |
+  18 |      & $HarnessPath @HarnessParams
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | GSH_STOP_PUSH_URL: push URL did not match the expected value.
+COMBINED_OUTPUT_END
+EXPECTED_MARKER: GSH_STOP_PUSH_URL:
+REQUIRED_MARKER: push URL did not match
+FORBIDDEN_MARKER: PASS: Secret Scan OK
+HAS_EXPECTED_MARKER: True
+HAS_REQUIRED_MARKER: True
+HAS_FORBIDDEN_PASS: False
+REQUIRE_EXPLICIT_STOP: False
+HAS_EXPLICIT_STOP: True
+RUNNER_PASS_EXPRESSION: True
+TEST_RESULT: PASS
+ADDITIONAL_EVIDENCE_BEGIN
+PUSH_URL_COUNT=1
+ACTUAL_PUSH_URL=[REDACTED_LOCAL_PATH]\mismatching.git
+EXPECTED_PUSH_URL=[REDACTED_LOCAL_PATH]\remote.git
+URLS_DIFFER=True
+ADDITIONAL_EVIDENCE_END
+
+DETAILED_CASE_RECORDS_END

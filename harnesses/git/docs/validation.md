@@ -64,6 +64,28 @@ The positive cases are:
 2. Success Case 2 — LF/CRLF stderr-isolation regression with an initially unstaged allowed change. The relevant warning is reproduced on the Harness Git path; the current Harness does not interpret it as policy data. The staged scan may therefore be empty after that path.
 3. Success Case 3 — non-empty allowed staged diff with a successful real-Gitleaks scan.
 
+## Preserved revalidation evidence
+
+A later evidence capture re-ran the unchanged source and test identities recorded above. It preserves the original validation environment, including PowerShell 7.6.5; it does not replace or rewrite that historical record.
+
+The later evidence environment was:
+
+- Git 2.54.0.windows.1
+- PowerShell 7.6.6
+- Windows PowerShell 5.1.26100.9444
+- Gitleaks 8.30.1
+
+The preserved revalidation results were:
+
+- PowerShell 7 fail-closed: **14/14 PASS**
+- Windows PowerShell 5.1 fail-closed: **14/14 PASS**
+- PowerShell 7 success path: **3/3 PASS**
+- Windows PowerShell 5.1 success path: **3/3 PASS**
+
+The PowerShell 7 micro-version differs from the original validation environment (`7.6.5` versus `7.6.6`). The preserved execution logs, case-level STOP output, exit codes, and SHA256 manifest are available under [the revalidation evidence directory](evidence/validation-20260919/).
+
+This later capture is bounded revalidation evidence for the identified source and test identities. It is not proof of universal compatibility, a security guarantee, production enforcement, or unbypassability.
+
 ## Additional validation
 
 - M2 differential regression: the historical pre-fix Harness stopped because Git stderr contaminated policy data; the current Harness passed the same relevant fixture under both PowerShell 7 and Windows PowerShell 5.1.

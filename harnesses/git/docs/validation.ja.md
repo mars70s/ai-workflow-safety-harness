@@ -64,6 +64,28 @@ positive caseは次のとおりです。
 2. Success Case 2 — 最初はunstagedのallowed changeでLF/CRLF stderr-isolation regressionを検証します。Harness関連Git pathでwarningを再現し、current Harnessがそれをpolicy dataとして解釈しないことを確認します。このpathの後はstaged scanがemptyになる場合があります。
 3. Success Case 3 — non-empty allowed staged diffをreal Gitleaksでscanし、成功するpath。
 
+## 保存済み再検証Evidence
+
+後日のEvidence captureで、上記に記録したsourceとtestのidentityを変更せずに再実行しました。original validation environment（PowerShell 7.6.5を含む）は維持しており、過去の記録を置換または書き換えるものではありません。
+
+後日のEvidence environmentは次のとおりです。
+
+- Git 2.54.0.windows.1
+- PowerShell 7.6.6
+- Windows PowerShell 5.1.26100.9444
+- Gitleaks 8.30.1
+
+保存済み再検証の結果は次のとおりです。
+
+- PowerShell 7 fail-closed: **14/14 PASS**
+- Windows PowerShell 5.1 fail-closed: **14/14 PASS**
+- PowerShell 7 success path: **3/3 PASS**
+- Windows PowerShell 5.1 success path: **3/3 PASS**
+
+PowerShell 7のmicro-versionはoriginal validation environmentと異なります（`7.6.5`と`7.6.6`）。保存済みの実行ログ、case単位のSTOP output、exit code、SHA256 manifestは[再検証Evidence directory](evidence/validation-20260919/)にあります。
+
+この後日のcaptureは、特定されたsourceとtest identityに対するboundedな再検証Evidenceです。universal compatibility、security guarantee、production enforcement、またはunbypassabilityの証明ではありません。
+
 ## Additional validation
 
 - M2 differential regression: historical pre-fix HarnessはGit stderrがpolicy dataを汚染したためSTOPし、current Harnessは同じrelevant fixtureをPowerShell 7とWindows PowerShell 5.1の両方でPASSしました。
